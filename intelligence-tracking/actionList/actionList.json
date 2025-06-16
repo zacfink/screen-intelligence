@@ -1,0 +1,166 @@
+[
+  {
+    "tag": "move_mouse",
+    "args": ["x: int", "y: int"],
+    "description": "Move the mouse to coordinates (x, y) on the screen.",
+    "undo_tag": null,
+    "conditions": ["screen must be visible"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "mouse cursor should be in a new position"
+  },
+  {
+    "tag": "left_click",
+    "args": [],
+    "description": "Perform a single left click at the current mouse position.",
+    "undo_tag": null,
+    "conditions": ["cursor is over a clickable element"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "screen should update or element should respond"
+  },
+  {
+    "tag": "right_click",
+    "args": [],
+    "description": "Perform a right click at the current mouse position.",
+    "undo_tag": null,
+    "conditions": ["used to open a context menu"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "context menu should appear"
+  },
+  {
+    "tag": "double_click",
+    "args": [],
+    "description": "Perform a double left click at the current mouse position.",
+    "undo_tag": null,
+    "conditions": ["cursor is over an icon, folder, or selectable text"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "folder may open, text may highlight"
+  },
+  {
+    "tag": "scroll",
+    "args": ["direction: string", "amount: int"],
+    "description": "Scroll in a given direction ('up', 'down', 'left', 'right') by a number of clicks.",
+    "undo_tag": "scroll",
+    "conditions": ["scrollable area is active"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "content should move in specified direction"
+  },
+  {
+    "tag": "type_text",
+    "args": ["text: string"],
+    "description": "Type the given text at the current cursor location.",
+    "undo_tag": null,
+    "conditions": ["text field is focused"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "text should appear in the input field"
+  },
+  {
+    "tag": "press_key",
+    "args": [
+      "key: ['\t', '\n', '\r', ' ', '!', '#', '$', '%', '&', '(',')', '*', '+', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7','8', '9', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`','a', 'b', 'c', 'd', 'e','f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o','p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~','accept', 'add', 'alt', 'altleft', 'altright', 'apps', 'backspace','browserback', 'browserfavorites', 'browserforward', 'browserhome','browserrefresh', 'browsersearch', 'browserstop', 'capslock', 'clear','convert', 'ctrl', 'ctrlleft', 'ctrlright', 'decimal', 'del', 'delete','divide', 'down', 'end', 'enter', 'esc', 'escape', 'execute', 'f1', 'f10','f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'f17', 'f18', 'f19', 'f2', 'f20','f21', 'f22', 'f23', 'f24', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9','final', 'fn', 'hanguel', 'hangul', 'hanja', 'help', 'home', 'insert', 'junja','kana', 'kanji', 'launchapp1', 'launchapp2', 'launchmail','launchmediaselect', 'left', 'modechange', 'multiply', 'nexttrack','nonconvert', 'num0', 'num1', 'num2', 'num3', 'num4', 'num5', 'num6','num7', 'num8', 'num9', 'numlock', 'pagedown', 'pageup', 'pause', 'pgdn','pgup', 'playpause', 'prevtrack', 'print', 'printscreen', 'prntscrn','prtsc', 'prtscr', 'return', 'right', 'scrolllock', 'select', 'separator','shift', 'shiftleft', 'shiftright', 'sleep', 'space', 'stop', 'subtract', 'tab','up', 'volumedown', 'volumemute', 'volumeup', 'win', 'winleft', 'winright', 'yen','command', 'option', 'optionleft', 'optionright']"
+    ],
+    "description": "Simulate a key press, such as 'Enter', 'Tab', 'Esc', or letters/numbers.",
+    "undo_tag": null,
+    "conditions": ["application is focused"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "interface should respond accordingly"
+  },
+  {
+    "tag": "wait",
+    "args": ["seconds: float"],
+    "description": "Pause execution for a number of seconds.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "none"
+  },
+  {
+    "tag": "open_application",
+    "args": ["app_name: string"],
+    "description": "Open a specific macOS application by name.",
+    "undo_tag": "close_application",
+    "conditions": ["application is installed"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "new window or app should open"
+  },
+  {
+    "tag": "close_application",
+    "args": ["app_name: string"],
+    "description": "Close or quit the given application by name.",
+    "undo_tag": "open_application",
+    "conditions": ["application is running"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "app window should disappear"
+  },
+  {
+    "tag": "switch_window",
+    "args": ["app_name: string"],
+    "description": "Bring the specified application to the front.",
+    "undo_tag": null,
+    "conditions": ["application is running"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "target application becomes active"
+  },
+  {
+    "tag": "screenshot",
+    "args": ["label: string"],
+    "description": "Take a screenshot and label it with the provided name.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "screenshot file saved"
+  },
+  {
+    "tag": "log_note",
+    "args": ["text: string"],
+    "description": "Log a human-readable message to the assistant's memory or debug console.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "note added to internal logs"
+  },
+  {
+    "tag": "confirm_action",
+    "args": ["question: string"],
+    "description": "Ask the user for confirmation before proceeding.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "popup or prompt to user"
+  },
+  {
+    "tag": "search_screen_text",
+    "args": ["query: string"],
+    "description": "Search the screen for specific visible text and return the location.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "returns coordinates or confirms presence"
+  },
+  {
+    "tag": "move_and_click_text",
+    "args": ["text: string"],
+    "description": "Search for a piece of text on the screen, move the mouse to it, and click.",
+    "undo_tag": null,
+    "conditions": ["text must be visible"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "element should be interacted with"
+  },
+  {
+    "tag": "exit_sequence",
+    "args": [],
+    "description": "Terminate the current automation loop or script.",
+    "undo_tag": null,
+    "conditions": [],
+    "requires_confirmation": "boolean",
+    "visible_effect": "execution stops"
+  },
+  {
+    "tag": "retry_last_action",
+    "args": [],
+    "description": "Retry the most recently failed action.",
+    "undo_tag": null,
+    "conditions": ["a previous action has failed"],
+    "requires_confirmation": "boolean",
+    "visible_effect": "same action will be re-attempted"
+  }
+]
