@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime screenshot captures — these are pictures of your actual desktop
+desktop-intelligence/screenshots/takenScreenshots/
+intelligence-tracking/**/takenScreenshots/
+
+# macOS
+.DS_Store

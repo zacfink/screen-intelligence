@@ -1,0 +1,8 @@
+openai
+python-dotenv
+pyautogui
+pillow
+opencv-python
+numpy
+pytesseract
+thefuzz
