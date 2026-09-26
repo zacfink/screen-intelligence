@@ -38,21 +38,27 @@ Needs Python 3.10, an OpenAI API key, and Tesseract installed for the OCR fallba
 ```bash
 pip install -r requirements.txt
 echo "OPENAI_API_KEY=sk-..." > .env
-python desktop-intelligence/main.py
+python desktop-intelligence/main.py "Open Safari and search for the weather in Kingston"
 ```
 
-Run it from the repository root — the paths in `main.py` are relative to it. macOS will ask for
-Screen Recording and Accessibility permission the first time, because the agent genuinely does take
-over the mouse and keyboard.
+Leave off the instruction and it asks for one. macOS will ask for Screen Recording and
+Accessibility permission the first time, because the agent really does take over the mouse and
+keyboard. To stop it mid-run, slam the mouse into a corner of the screen (pyautogui's fail-safe).
 
-The instruction is currently hardcoded at the top of `main()`; uncomment `getUsersInput()` to be
-prompted for it instead.
+A run stops on its own when you decline a confirmation, when the plan asks for an action outside
+the vocabulary, or after 5 replans of a step that keeps failing.
+
+Tests (no model calls, nothing touches the real mouse):
+
+```bash
+python -m unittest discover desktop-intelligence
+```
 
 ## Known rough edges
 
-- The instruction is hardcoded rather than prompted for by default.
-- Paths are relative to the repository root, so it only runs from there.
 - Which steps ask for confirmation is decided by the model, not by you, so a step it judges safe
   runs without asking. Watch it while it runs.
 - `undo_tag` is part of the plan schema and gets recorded, but nothing ever acts on it — there is
   no rollback.
+- Coordinates for `move_mouse` come from a text description of the screen, not from the image
+  itself, so they are guesses. `move_and_click_text` (OCR) is the reliable way to hit a target.

@@ -122,6 +122,8 @@ def getScreenText(path, text):
                     print("True: ", fuzz.ratio(word, line[-1][-1]), word, line[-1][-1])
 
     bestData = groupData(wordDataList)
+    if not bestData[2] or not bestData[3]:
+        return None  # no match with a real bounding box
 
     textX = bestData[0] + bestData[2] / 2
     textY = bestData[1] + bestData[3] / 2

@@ -13,3 +13,7 @@ intelligence-tracking/**/takenScreenshots/
 
 # macOS
 .DS_Store
+
+# Per-run step log, rewritten by main.py
+desktop-intelligence/actions/allActions/actionTracking/trackedActions/
+desktop-intelligence/actionProcessing/loggedNotes/

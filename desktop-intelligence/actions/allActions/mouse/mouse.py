@@ -20,7 +20,7 @@ class Mouse:
         return f"Right clicked"
 
     def doubleClick(self):
-        pyautogui.click(interval=0.25)
+        pyautogui.doubleClick()
         return f"Double clicked"
 
     def scroll(self, direction, amount):

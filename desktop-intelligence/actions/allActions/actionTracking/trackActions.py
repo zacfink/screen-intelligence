@@ -7,8 +7,7 @@ def appendStepToJson(step):
         "desktop-intelligence/actions/allActions/actionTracking/trackedActions/actions.json",
     ) as feedsjson:
         feeds = json.load(feedsjson)
-    feeds.append(json.dumps(step))
-    print(feeds)
+    feeds.append(step)
     with open(
         "desktop-intelligence/actions/allActions/actionTracking/trackedActions/actions.json",
         "w",

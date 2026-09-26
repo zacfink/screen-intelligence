@@ -14,13 +14,15 @@ from actionProcessing.confirmationAI.alterStepsReason.alterStepsReason import (
 )
 
 
-def extract_json(text):
-    match = re.search(r"{[\s\S]*}", text)
-    if match:
-        cleaned = re.sub(r"```json|```", "", match.group()).strip()
-        return json.loads(cleaned)
-    else:
-        raise ValueError("No valid JSON found in response.")
+MAX_REPLANS = 5  # each replan is two model calls; stop instead of looping on a step that keeps failing
+
+
+class StopRun(Exception):
+    pass
+
+
+def parsePlan(text):
+    return json.loads(re.sub(r"```json|```", "", text).strip())
 
 
 def beforeScreenshot():
@@ -73,12 +75,13 @@ def executeAction(tag, args, altAct, kb, m):
         case "move_and_click_text":
             altAct.moveAndClickText(args[0])
         case "exit_sequence":
-            altAct.exitSequence()
+            raise StopRun("The plan ended the run.")
         case "retry_last_action":
-            altAct.retryLastAction()
-            if getLastStep() != None:
-                stepToRetry = getLastStep()
-                executeAction(stepToRetry["tag"], stepToRetry["args"])
+            stepToRetry = getLastStep()
+            if stepToRetry is not None and stepToRetry["tag"] != "retry_last_action":
+                executeAction(stepToRetry["tag"], stepToRetry.get("args", []), altAct, kb, m)
+        case _:
+            raise StopRun(f"Unknown action {tag!r}; stopping rather than guessing.")
 
 
 def translateTag(step, stepList, stepCount, usersInput, actionList):
@@ -88,11 +91,10 @@ def translateTag(step, stepList, stepCount, usersInput, actionList):
 
     tag = step["tag"]
     args = step.get("args", [])
-    description = step["description"]
-    visibleChange = step["visible_effect"]
-    requires_confirmation = step["requires_confirmation"]
-    conditions = step["conditions"]
-    undo_tag = step["undo_tag"]
+    description = step.get("description", tag)
+    visibleChange = step.get("visible_effect", "")
+    requires_confirmation = step.get("requires_confirmation", False)
+    conditions = step.get("conditions", [])
 
     print(f"Step working!: {description}")
 
@@ -100,14 +102,11 @@ def translateTag(step, stepList, stepCount, usersInput, actionList):
     print("Before screenshot taken successfully!")
 
     if requires_confirmation:
-        confirm = altAct.confirmAction(f"Proceed with: {description}?")
-        if "no" in confirm.lower():
-            return
+        if altAct.confirmAction(f"Proceed with: {description}?") != "Yes":
+            # later steps assume this one happened, so skipping it and carrying on isn't safe
+            raise StopRun(f"You declined: {description}")
 
-    try:
-        previousSteps = stepList[: stepCount - 1]
-    except Exception:
-        previousSteps = []
+    previousSteps = stepList[: stepCount - 1]
 
     print("Completed Steps", json.dumps(previousSteps, indent=4))
     print("Current Step", json.dumps(step, indent=4))
@@ -145,7 +144,7 @@ def translateTag(step, stepList, stepCount, usersInput, actionList):
             print("action_completed: ", result["action_completed"])
             if result["action_completed"] == "false" or not result["action_completed"]:
                 print("Condition failed:", result["issue"])
-                alteredSteps = json.loads(
+                alteredSteps = parsePlan(
                     alterStepsReason(
                         usersInput,
                         result,
@@ -166,22 +165,30 @@ def translateTag(step, stepList, stepCount, usersInput, actionList):
 
 
 def completeSteps(stepList, usersInput, actionList):
-    stepList = json.loads(stepList)
+    stepList = parsePlan(stepList)
     stepCount = 0
+    replans = 0
 
-    while stepCount < len(stepList):
-        step = stepList[stepCount]
-        print(f"Step {stepCount + 1} starting...")
+    try:
+        while stepCount < len(stepList):
+            step = stepList[stepCount]
+            print(f"Step {stepCount + 1} starting...")
 
-        updatedSteps = translateTag(
-            step, stepList, stepCount + 1, usersInput, actionList
-        )
+            updatedSteps = translateTag(
+                step, stepList, stepCount + 1, usersInput, actionList
+            )
 
-        if updatedSteps is not None:
-            print("Updated Steps: \n", json.dumps(updatedSteps, indent=2))
-            stepList = updatedSteps
-            stepCount = 0
-            continue
+            if updatedSteps is not None:
+                replans += 1
+                if replans > MAX_REPLANS:
+                    raise StopRun(f"Still failing after {MAX_REPLANS} replans.")
+                print("Updated Steps: \n", json.dumps(updatedSteps, indent=2))
+                stepList = updatedSteps
+                stepCount = 0
+                continue
 
-        print(f"Step {stepCount + 1} completed!")
-        stepCount += 1
+            print(f"Step {stepCount + 1} completed!")
+            stepCount += 1
+        print("All steps completed.")
+    except StopRun as e:
+        print(f"Stopped: {e}")

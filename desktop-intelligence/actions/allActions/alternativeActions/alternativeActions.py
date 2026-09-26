@@ -1,8 +1,5 @@
-import re
 import pyautogui
-import os
-from PIL import Image
-import pytesseract
+import subprocess
 import time
 from .searchScreenText.searchScreenText import getScreenText
 
@@ -13,20 +10,22 @@ class AlernativeActions:
         time.sleep(seconds)
         return f"Waited for {seconds} seconds"
 
+    # App names come from the model, so they go to `open` as an argument, never through a shell.
     def openApplication(self, app):
-        os.system(f"open -a {app}")
+        subprocess.run(["open", "-a", app])
         return f"Opened {app}"
 
     def closeApplication(self, app):
-        os.system(f"close -a {app}")
+        subprocess.run(["osascript", "-e", "on run {a}", "-e", "tell application a to quit", "-e", "end run", app])
         return f"Closed {app}"
 
     def switchWindow(self, app):
-        os.system(f"open -a {app}")
+        subprocess.run(["open", "-a", app])
         return f"Showing {app}"
 
     def screenshot(self, label):
-        pyautogui.screenshot(label)
+        name = "".join(c for c in label if c.isalnum() or c in " -_") or "screenshot"
+        pyautogui.screenshot(f"desktop-intelligence/screenshots/takenScreenshots/{name}.png")
         return f"Screenshot '{label}' taken"
 
     def logNote(self, path, note):
@@ -35,25 +34,18 @@ class AlernativeActions:
         return f"Note '{note}' logged"
 
     def confirmAction(self, question):
-        confirmation = pyautogui.confirm(
-            text=question, title="Confirm Action", buttons=["Yes", "No"]
-        )
-        return f"Confirmation reponse: {confirmation}"
+        return pyautogui.confirm(text=question, title="Confirm Action", buttons=["Yes", "No"])
 
     def searchScreenText(self, query):
-        screenshot_path = f"desktop-intelligence/screenshots/takenScreenshots/searchForText/searchFor{query}.png"
-        screenshot = pyautogui.screenshot()
-        screenshot.save(screenshot_path)
-        textX, textY = getScreenText(screenshot_path, query)
-        return textX, textY
+        screenshot_path = "desktop-intelligence/screenshots/takenScreenshots/searchForText/search.png"
+        pyautogui.screenshot().save(screenshot_path)
+        return getScreenText(screenshot_path, query)
 
     def moveAndClickText(self, text):
-        textX, textY = self.searchScreenText(text)
-        pyautogui.moveTo(textX, textY, 1, pyautogui.easeInQuad)
+        found = self.searchScreenText(text)
+        if found is None:
+            # clicking (0, 0) would hit the Apple menu and trip pyautogui's fail-safe; the after-check replans instead
+            print(f"Couldn't find {text!r} on screen; not clicking.")
+            return
+        pyautogui.moveTo(found[0], found[1], 1, pyautogui.easeInQuad)
         pyautogui.click()
-
-    def exitSquence(self):
-        return False
-
-    def retryLastAction(self):
-        return "Retry"
