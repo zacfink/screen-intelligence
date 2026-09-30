@@ -1,5 +1,7 @@
 # Screen Intelligence
 
+[![tests](https://github.com/zacfink/screen-intelligence/actions/workflows/tests.yml/badge.svg)](https://github.com/zacfink/screen-intelligence/actions/workflows/tests.yml)
+
 A macOS agent that looks at the screen, works out the steps, and drives the mouse and keyboard to
 carry them out. You give it an instruction in plain English — "Go onto Safari and open the Amazon
 Neo hedged stock" — and it does the clicking.
@@ -31,6 +33,7 @@ All of it is in `screen_intelligence/`:
 
 - `__main__.py` — entry point: screenshot, describe, plan, run.
 - `llm.py` — the four model calls (describe, plan, check a step, replan).
+- `models.py` — Pydantic shapes of what the models return, enforced through OpenAI structured outputs.
 - `agent.py` — the run loop: act, screenshot before and after, check, replan.
 - `actions.py` — the action vocabulary, carried out with pyautogui.
 - `ocr.py` — finds on-screen text with Tesseract for `move_and_click_text`.
@@ -53,7 +56,7 @@ keyboard. To stop it mid-run, slam the mouse into a corner of the screen (pyauto
 A run stops on its own when you decline a confirmation, when the plan asks for an action outside
 the vocabulary, or after 5 replans of a step that keeps failing.
 
-Tests (no model calls, nothing touches the real mouse):
+Tests (OpenAI is faked and nothing touches the real mouse; CI runs them on macOS on every push):
 
 ```bash
 python -m unittest
