@@ -2,6 +2,7 @@
 
     desk shot                 screenshot -> runtime/desk.png (1280 wide, grid every 100px), prints its path
     desk click X Y [right|double]   click at (X, Y) in the last screenshot's coordinates
+    desk drag X1 Y1 X2 Y2     press at (X1, Y1), move slowly to (X2, Y2), release (screenshot coordinates)
     desk type "text"          type text at the cursor
     desk key cmd+l            press a key or a combo (pyautogui key names joined by +)
     desk scroll up|down|left|right N
@@ -68,6 +69,16 @@ def main(argv):
                 pyautogui.doubleClick(x, y)
             else:
                 pyautogui.click(x, y, button=kind)
+        case "drag":
+            if not SCALE.exists():
+                sys.exit("Take a shot first: drag coordinates are in the last screenshot's space.")
+            scale = json.loads(SCALE.read_text())
+            x1, y1 = to_screen(float(args[0]), float(args[1]), scale)
+            x2, y2 = to_screen(float(args[2]), float(args[3]), scale)
+            pyautogui.moveTo(x1, y1)
+            pyautogui.mouseDown()
+            pyautogui.moveTo(x2, y2, duration=0.8)  # gradual, so apps see motion events, not a jump
+            pyautogui.mouseUp()
         case "type":
             # pyautogui.write drops non-ASCII, so paste anything else through the clipboard
             text = " ".join(args)
