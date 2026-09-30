@@ -1,11 +1,11 @@
 """Run a plan step by step: act, screenshot before and after, check it worked, replan if not."""
-import json
 import time
 
 import pyautogui
 
 from . import RUNTIME, llm
 from .actions import ACTION_LIST, StopRun, confirm, execute_action, log_step
+from .models import Step
 from .screenshots import capture_with_cursor, encode
 
 MAX_REPLANS = 5  # each replan is two model calls; stop instead of looping on a step that keeps failing
@@ -13,40 +13,35 @@ BEFORE = RUNTIME / "before.png"
 AFTER = RUNTIME / "after.png"
 
 
-def run_step(step, plan, index, goal):
+def run_step(step: Step, plan: list[Step], index, goal) -> list[Step] | None:
     """Runs plan[index]. Returns a replacement plan if the step didn't do what it promised, else None."""
-    description = step.get("description", step["tag"])
-    print(f"Step {index + 1}: {description}")
+    print(f"Step {index + 1}: {step.description}")
 
     capture_with_cursor(BEFORE)
-    if step.get("requires_confirmation") and confirm(f"Proceed with: {description}?") != "Yes":
+    if step.requires_confirmation and confirm(f"Proceed with: {step.description}?") != "Yes":
         # later steps assume this one happened, so skipping it and carrying on isn't safe
-        raise StopRun(f"You declined: {description}")
+        raise StopRun(f"You declined: {step.description}")
 
-    execute_action(step["tag"], step.get("args", []))
+    execute_action(step.tag, step.args)
     time.sleep(0.75)
     capture_with_cursor(AFTER)
-    log_step(step)
+    log_step(step.model_dump())
 
-    if not step.get("conditions"):
+    if not step.conditions:
         return None
     try:
         mouse_x, mouse_y = pyautogui.position()
-        check = json.loads(llm.check_step(
-            encode(BEFORE), encode(AFTER), step.get("visible_effect", ""), step["conditions"], mouse_x, mouse_y
-        ))
-        if check["action_completed"] and check["action_completed"] != "false":
+        check = llm.check_step(encode(BEFORE), encode(AFTER), step.visible_effect, step.conditions, mouse_x, mouse_y)
+        if check.action_completed:
             return None
-        print("Step didn't work:", check["issue"])
-        return json.loads(llm.replan(
-            goal, check, mouse_x, mouse_y, plan[:index], step, plan[index + 1:], ACTION_LIST
-        ))
+        print("Step didn't work:", check.issue)
+        return llm.replan(goal, check, mouse_x, mouse_y, plan[:index], step, plan[index + 1:], ACTION_LIST)
     except Exception as e:
         print(f"Comparison failed: {e}")
         return None
 
 
-def run_plan(plan, goal):
+def run_plan(plan: list[Step], goal):
     index = replans = 0
     try:
         while index < len(plan):
@@ -57,7 +52,7 @@ def run_plan(plan, goal):
             replans += 1
             if replans > MAX_REPLANS:
                 raise StopRun(f"Still failing after {MAX_REPLANS} replans.")
-            print("New plan:\n", json.dumps(new_plan, indent=2))
+            print("New plan:\n" + "\n".join(f"  {s.tag} {s.args}" for s in new_plan))
             plan, index = new_plan, 0
         print("All steps completed.")
     except StopRun as e:

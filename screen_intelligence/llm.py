@@ -1,29 +1,25 @@
 """The four model calls: describe the screen, plan steps, check a step worked, replan after a failure."""
-import re
-
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from .models import Plan, Step, StepCheck
+
 load_dotenv()
 
-STEP_FORMAT = """You must return a JSON array where each action follows this format:
+STEP_RULES = """Each step's fields:
+- tag: an action tag from the list
+- args: values matching that action's parameters
+- description: what the step does, including purpose and spatial or UI context
+- undo_tag: a tag that would reverse the step, or null
+- conditions: what must be true before this step runs
+- requires_confirmation: true if the user should approve it first
+- visible_effect: what should visibly change if the step succeeds
 
-{
-"tag": "action_tag",
-"args": [/* values matching required parameters */],
-"description": "Natural language description of what the step does, including purpose and spatial or UI context.",
-"undo_tag": "optional_tag_to_reverse_action_or_null",
-"conditions": ["list of required conditions that must be true before this action runs"],
-"requires_confirmation": true_or_false,
-"visible_effect": "what should visibly change if the action succeeds"
-}
-
-Use only actions from the provided list. Do not invent new tags or functions. Use realistic values for all args.
-Avoid explanations — just return the raw JSON array."""
+Use only actions from the provided list. Do not invent new tags or functions. Use realistic values for all args."""
 
 
-def strip_fences(text):
-    return re.sub(r"```json|```", "", text).strip()
+def dump(steps):
+    return "[" + ",\n".join(s.model_dump_json(indent=2) for s in steps) + "]"
 
 
 def image(b64):
@@ -50,7 +46,7 @@ def describe_screen(screenshot_b64):
     return response.output_text
 
 
-def plan_steps(screen_description, goal, action_list):
+def plan_steps(screen_description, goal, action_list) -> list[Step]:
     prompt = f"""You are an AI automation planner. Your job is to create a structured list of actions for a macOS assistant to follow.
 
 You will receive:
@@ -58,7 +54,7 @@ You will receive:
 - A description of the current screen
 - A list of allowed actions (including their tags, arguments, and descriptions)
 
-{STEP_FORMAT}
+{STEP_RULES}
 
 ---
 
@@ -71,14 +67,12 @@ SCREEN DESCRIPTION:
 AVAILABLE ACTIONS:
 {action_list}
 
----
-
-Now return the JSON array of steps only:"""
-    response = OpenAI().responses.create(model="o3-mini", input=[{"role": "user", "content": prompt}])
-    return strip_fences(response.output_text)
+---"""
+    response = OpenAI().responses.parse(model="o3-mini", input=[{"role": "user", "content": prompt}], text_format=Plan)
+    return response.output_parsed.steps
 
 
-def check_step(before_b64, after_b64, visible_effect, conditions, mouse_x, mouse_y):
+def check_step(before_b64, after_b64, visible_effect, conditions, mouse_x, mouse_y) -> StepCheck:
     prompt = (
         "You are an assistant that compares two screenshots of a macOS computer.\n\n"
         "The first image is BEFORE an automation step. The second image is AFTER the step.\n\n"
@@ -86,21 +80,19 @@ def check_step(before_b64, after_b64, visible_effect, conditions, mouse_x, mouse
         f"The expected condition after for the next steps to happen is: {conditions}\n\n"
         f"The mouse was moved to: x={mouse_x}, y={mouse_y}. The mouse cursor may appear as a small red circle at this position, or as a macOS pointer icon.\n\n"
         "Your task is to analyze the difference between the two screenshots and determine if the action was successful.\n\n"
-        "Return ONLY a valid JSON object in one of the following formats:\n\n"
-        "If the expected change occurred:\n"
-        '{\n  "action_completed": true,\n  "steps_needed": false,\n  "issue": null,\n  "current_screen_state": "Describe what the AFTER screenshot now shows."\n}\n\n'
-        "If the change did not occur:\n"
-        '{\n  "action_completed": false,\n  "steps_needed": true,\n  "issue": "Explain what is missing or unchanged based on the visible change.",\n  "current_screen_state": "Accurately describe what the AFTER screenshot still looks like. This will be used for a reasoning model to get the fix the next steps. Make this very indepth. Do not only explain what has happened, describe the entire screen."\n}\n\n'
-        "Do not include any commentary or explanation. Just output the JSON block only."
+        "Set action_completed to whether the expected change happened, and issue to what is missing or unchanged (null if it worked). "
+        "In current_screen_state, accurately describe what the AFTER screenshot shows. If the step failed, a reasoning model uses this "
+        "to fix the next steps, so make it very in-depth: describe the entire screen, not only what changed."
     )
-    response = OpenAI().responses.create(
+    response = OpenAI().responses.parse(
         model="gpt-4o",
         input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}, image(before_b64), image(after_b64)]}],
+        text_format=StepCheck,
     )
-    return strip_fences(response.output_text)
+    return response.output_parsed
 
 
-def replan(goal, check, mouse_x, mouse_y, done_steps, failed_step, remaining_steps, action_list):
+def replan(goal, check: StepCheck, mouse_x, mouse_y, done_steps: list[Step], failed_step: Step, remaining_steps: list[Step], action_list) -> list[Step]:
     prompt = f"""You are an AI automation planner.
 Your job is to correct an error on the screen determined by the result of a vision AI model.
 You will replace the current steps with a new list of steps as a result of a step not working properly.
@@ -115,7 +107,7 @@ You will receive:
 - The remaining steps to be replaced.
 - A list of allowed actions (including their tags, arguments, and descriptions)
 
-{STEP_FORMAT}
+{STEP_RULES}
 
 ---
 
@@ -123,7 +115,7 @@ USER GOAL:
 {goal}
 
 RESULT OF VISION AI MODEL:
-{check}
+{check.model_dump_json(indent=2)}
 
 MOUSE X:
 {mouse_x}
@@ -132,19 +124,17 @@ MOUSE Y:
 {mouse_y}
 
 PREVIOUSLY RUN STEPS:
-{done_steps}
+{dump(done_steps)}
 
 CURRENTLY RAN STEP:
-{failed_step}
+{failed_step.model_dump_json(indent=2)}
 
 REMAINING LIST OF STEPS:
-{remaining_steps}
+{dump(remaining_steps)}
 
 LIST OF ACTIONS:
 {action_list}
 
----
-
-Now return the JSON array of steps only:"""
-    response = OpenAI().responses.create(model="o3-mini", input=[{"role": "user", "content": prompt}])
-    return strip_fences(response.output_text)
+---"""
+    response = OpenAI().responses.parse(model="o3-mini", input=[{"role": "user", "content": prompt}], text_format=Plan)
+    return response.output_parsed.steps

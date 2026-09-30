@@ -3,9 +3,16 @@ import unittest
 from unittest.mock import patch
 
 from screen_intelligence import agent
-from screen_intelligence.actions import StopRun
+from screen_intelligence.models import Step
 
-CLICK = {"tag": "left_click", "args": []}
+
+def step(**changes):
+    fields = dict(tag="left_click", args=[], description="click", undo_tag=None, conditions=[],
+                  requires_confirmation=False, visible_effect="")
+    return Step(**{**fields, **changes})
+
+
+CLICK = step()
 
 
 class RunPlan(unittest.TestCase):
@@ -18,7 +25,7 @@ class RunPlan(unittest.TestCase):
         with patch.object(agent, "confirm", return_value="No"), \
              patch.object(agent, "capture_with_cursor"), \
              patch.object(agent, "execute_action") as execute:
-            agent.run_plan([{**CLICK, "requires_confirmation": True}, CLICK], "goal")
+            agent.run_plan([step(requires_confirmation=True), CLICK], "goal")
         execute.assert_not_called()
 
 

@@ -1,5 +1,4 @@
 """python -m screen_intelligence "Open Safari and search for the weather in Kingston" """
-import json
 import sys
 
 from . import RUNTIME, llm
@@ -16,7 +15,7 @@ def main():
     screen = RUNTIME / "screen.png"
     capture(screen)
     description = llm.describe_screen(encode(screen))
-    plan = json.loads(llm.plan_steps(description, goal, ACTION_LIST))
+    plan = llm.plan_steps(description, goal, ACTION_LIST)
     run_plan(plan, goal)
 
 
