@@ -13,7 +13,7 @@ operate a desktop without any app-specific integration. It is a prototype, not a
 2. **Describe** — sends it to GPT-4o with a prompt that forces a spatial, bullet-point breakdown:
    which app is open, where the panels are, what text is visible, where the cursor is.
 3. **Reason** — turns that description plus your instruction into an ordered list of steps, drawn
-   from a fixed action vocabulary defined in `actions/actionList/actionList.json`
+   from a fixed action vocabulary defined in `screen_intelligence/action_list.json`
    (`move_mouse`, `left_click`, `scroll`, keyboard input, and so on — each with its arguments,
    preconditions and expected visible effect).
 4. **Act and verify** — runs each step, takes a before and after screenshot around it, and compares
@@ -22,14 +22,19 @@ operate a desktop without any app-specific integration. It is a prototype, not a
    failure and alters the remaining steps rather than blindly continuing.
 
 Steps the model marks `requires_confirmation` pop a dialog and wait for you before running. There
-is also an OCR fallback (`searchScreenText`) for finding a target by its on-screen text when
-coordinates aren't reliable, and a running log of every step taken in `actionTracking/`.
+is also an OCR fallback (`ocr.py`) for finding a target by its on-screen text when
+coordinates aren't reliable, and a log of every step taken in `runtime/steps.json`.
 
 ## Layout
 
-- `desktop-intelligence/` — the agent. Start at `main.py`.
-- `intelligence-tracking/` — an earlier experiment: asking clarifying questions up front and
-  breaking a requested action into its parts before doing anything.
+All of it is in `screen_intelligence/`:
+
+- `__main__.py` — entry point: screenshot, describe, plan, run.
+- `llm.py` — the four model calls (describe, plan, check a step, replan).
+- `agent.py` — the run loop: act, screenshot before and after, check, replan.
+- `actions.py` — the action vocabulary, carried out with pyautogui.
+- `ocr.py` — finds on-screen text with Tesseract for `move_and_click_text`.
+- `screenshots.py` — capture and encode.
 
 ## Running it
 
@@ -38,7 +43,7 @@ Needs Python 3.10, an OpenAI API key, and Tesseract installed for the OCR fallba
 ```bash
 pip install -r requirements.txt
 echo "OPENAI_API_KEY=sk-..." > .env
-python desktop-intelligence/main.py "Open Safari and search for the weather in Kingston"
+python -m screen_intelligence "Open Safari and search for the weather in Kingston"
 ```
 
 Leave off the instruction and it asks for one. macOS will ask for Screen Recording and
@@ -51,7 +56,7 @@ the vocabulary, or after 5 replans of a step that keeps failing.
 Tests (no model calls, nothing touches the real mouse):
 
 ```bash
-python -m unittest discover desktop-intelligence
+python -m unittest
 ```
 
 ## Known rough edges

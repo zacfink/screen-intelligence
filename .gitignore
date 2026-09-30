@@ -7,13 +7,8 @@ __pycache__/
 .venv/
 venv/
 
-# Runtime screenshot captures — these are pictures of your actual desktop
-desktop-intelligence/screenshots/takenScreenshots/
-intelligence-tracking/**/takenScreenshots/
+# Runtime screenshots, step log and notes — these are pictures of your actual desktop
+runtime/
 
 # macOS
 .DS_Store
-
-# Per-run step log, rewritten by main.py
-desktop-intelligence/actions/allActions/actionTracking/trackedActions/
-desktop-intelligence/actionProcessing/loggedNotes/
