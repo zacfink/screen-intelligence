@@ -38,6 +38,7 @@ All of it is in `screen_intelligence/`:
 - `actions.py` — the action vocabulary, carried out with pyautogui.
 - `ocr.py` — finds on-screen text with Tesseract for `move_and_click_text`.
 - `screenshots.py` — capture and encode.
+- `desk.py` — a no-model CLI (`shot`, `click`, `type`, `key`, `scroll`, `open`) so another agent, such as Claude Code, can be the brain.
 
 ## Running it
 
