@@ -1,7 +1,7 @@
 """desk: let Claude drive the Mac. Claude is the vision model and planner; this only sees and acts.
 
   Look (cheapest first):
-    desk ui [--find TEXT] [--all] [App]   front window's buttons, fields and labels as numbered lines
+    desk ui [--find TEXT] [--all] [--full] [App]   front window's buttons, fields and labels as numbered lines
                               (first 80 unless --all; --find keeps lines containing TEXT)
     desk shot                 screenshot -> runtime/desk.png (1280 wide, grid every 100px), prints its path
   Act:
@@ -13,6 +13,9 @@
     desk scroll up|down|left|right N
     desk open "App Name"      open or switch to an app
     desk wait SECONDS
+  Hand off:
+    desk until TEXT[|TEXT2] [App] [--gone] [--timeout S]   wait until a label containing TEXT appears (or, with
+                              --gone, disappears), e.g. while Zac logs in. Checks every 2s, gives up after S (300).
   Batch:
     desk run "click #4; type Zac; key tab; type Finkelstein; ui"
 """
@@ -82,13 +85,15 @@ def shot():
 
 
 def ui(args):
-    from .ax import elements
+    from . import ax
 
     find = args[args.index("--find") + 1].lower() if "--find" in args else None
     show_all = "--all" in args
-    rest = [a for i, a in enumerate(args) if a not in ("--find", "--all") and (i == 0 or args[i - 1] != "--find")]
+    if "--full" in args:  # untruncated labels, for reading paragraphs rather than finding buttons
+        ax.MAX_TEXT = 2000
+    rest = [a for i, a in enumerate(args) if a not in ("--find", "--all", "--full") and (i == 0 or args[i - 1] != "--find")]
     RUNTIME.mkdir(exist_ok=True)
-    app, title, found = elements(" ".join(rest) or None)
+    app, title, found = ax.elements(" ".join(rest) or None)
     # numbering always covers everything, so #N stays valid whatever was printed
     UI.write_text(json.dumps({"pid": app.processIdentifier(), "elements": found}))
     name = app.localizedName()
@@ -100,6 +105,25 @@ def ui(args):
         print("(nothing readable: this app draws its own pixels, so use `desk shot`)")
     elif not (show_all or find) and len(lines) > UI_LINES:
         print(f"... {len(lines) - UI_LINES} more: use --find TEXT, --all, or `desk shot`")
+
+
+def until(args):
+    from .ax import elements
+
+    gone = "--gone" in args
+    timeout = float(args[args.index("--timeout") + 1]) if "--timeout" in args else 300
+    words = [a for i, a in enumerate(args) if a not in ("--gone", "--timeout") and (i == 0 or args[i - 1] != "--timeout")]
+    texts, app_name = words[0].lower().split("|"), " ".join(words[1:]) or None  # "log out|logout": any of them
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        _, title, found = elements(app_name)
+        hits = [e for e in found if any(t in e["text"].lower() for t in texts)]
+        hits += [{"role": "window", "text": title}] if any(t in title.lower() for t in texts) else []
+        if bool(hits) != gone:
+            print(f"{'gone' if gone else 'found'}: {hits[0]['role']} {hits[0]['text']!r}" if hits else "gone")
+            return
+        time.sleep(2)
+    sys.exit(f"Timed out after {timeout:.0f}s waiting for {words[0]!r} to {'go' if gone else 'appear'}.")
 
 
 def do(command, args):
@@ -140,6 +164,8 @@ def do(command, args):
             time.sleep(0.5)
         case "wait":
             time.sleep(float(args[0]))
+        case "until":
+            until(args)
         case "run":
             for step in " ".join(args).split(";"):
                 if step.strip():
