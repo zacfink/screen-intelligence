@@ -86,3 +86,12 @@ class Run(unittest.TestCase):
         self.pyautogui.size.return_value = (640, 400)
         window = {"X": 300, "Y": 50, "Width": 300, "Height": 300}
         self.assertFalse(self.desk.changed(self.desk.frame(window), self.desk.frame(window)))
+
+    def test_moving_the_mouse_yourself_stops_the_batch_after_the_current_step(self):
+        # read before and after each step; you grab the mouse after step 2 finishes
+        self.pyautogui.position.side_effect = [(100, 100)] * 4 + [(400, 250)]
+        with self.assertRaises(SystemExit) as stop:
+            self.desk.do("run", ["key tab; key tab; key tab"])
+        self.assertIn("before step 3 of 3", str(stop.exception.code))
+        self.assertIn("you moved the mouse", str(stop.exception.code))
+        self.assertEqual(self.pyautogui.hotkey.call_count, 2)  # steps 1 and 2 finished, step 3 never started

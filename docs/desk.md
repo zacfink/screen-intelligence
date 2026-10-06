@@ -75,8 +75,15 @@ flowchart LR
   call[Any desk click/type/key/run] --> idle{Acted in the<br/>last 5 minutes?}
   idle -- no --> warn[macOS notification + Ping,<br/>3-second pause] --> act[Act]
   idle -- yes --> act
-  act --> abort[Slam the cursor into a<br/>screen corner to abort anytime]
+  act --> moved{Cursor where desk<br/>left it after the step?}
+  moved -- yes --> nextstep[Next step]
+  moved -- "no: you moved it" --> yours([Stop cleanly: the step finished,<br/>the rest of the batch doesn't run])
+  act --> abort[Slam the cursor into a<br/>screen corner to abort instantly]
 ```
+
+Moving the mouse yourself is the gentle stop: `desk` finishes the step it's on, then hands the mouse back. Claude
+never moves the cursor between steps, so any move there is you. The check costs well under a millisecond per step.
+The corner slam is the emergency stop, and it can interrupt mid-step.
 
 Submitting, sending, buying and deleting are still one click at a time, after asking in chat.
 

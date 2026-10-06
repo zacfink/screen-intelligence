@@ -22,7 +22,8 @@
   Batch:
     desk run "click #4; expect 'First name'; type Ada; key tab; type Lovelace; ui --find Submit"
                               Every click waits for the screen to change. If it doesn't (a missed click, a form
-                              that never opened), the batch stops there and says which step.
+                              that never opened), the batch stops there and says which step. Move the mouse
+                              yourself and the batch finishes the step it's on, then stops.
 """
 import json
 import shlex
@@ -242,7 +243,11 @@ def do(command, args):
             until(args if "--timeout" in args else args + ["--timeout", "3"])
         case "run":
             batch = steps(" ".join(args))
+            left_at = None  # where the cursor was after the last step; Claude never moves it between steps
             for i, words in enumerate(batch, 1):
+                now = pyautogui.position()
+                if left_at and abs(now[0] - left_at[0]) + abs(now[1] - left_at[1]) > 3:
+                    sys.exit(f"Stopped before step {i} of {len(batch)} ({' '.join(words)}): you moved the mouse, so it's yours")
                 try:
                     problem = do(words[0], words[1:])
                 except SystemExit as e:
@@ -250,6 +255,7 @@ def do(command, args):
                 if problem:
                     sys.exit(f"Stopped at step {i} of {len(batch)} ({' '.join(words)}): {problem}")
                 time.sleep(0.1)  # let the app catch up between steps
+                left_at = tuple(pyautogui.position())
         case _:
             sys.exit(__doc__)
 
