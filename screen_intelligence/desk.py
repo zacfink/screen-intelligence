@@ -8,6 +8,7 @@
     desk click #N             click element N from the last `ui`
     desk click X Y [right|double]   click at (X, Y) in the last screenshot's pixels
     desk drag X1 Y1 X2 Y2     press, move slowly, release (screenshot pixels)
+    desk move X Y | #N        put the cursor there without clicking (scroll goes to whatever is under it)
     desk type "text"          paste text at the cursor (keeps your clipboard)
     desk type --keys "text"   real keystrokes, for menus and anything that ignores paste
     desk key cmd+l            a key or a combo (pyautogui key names joined by +)
@@ -215,6 +216,8 @@ def do(command, args):
             (x, y), rest = point(args)
             if not click(x, y, rest[0] if rest else "left"):
                 return "click changed nothing on screen"
+        case "move":
+            pyautogui.moveTo(*point(args)[0])
         case "drag":
             (x1, y1), rest = point(args)
             (x2, y2), _ = point(rest)
