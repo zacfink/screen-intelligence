@@ -95,3 +95,38 @@ class Run(unittest.TestCase):
         self.assertIn("before step 3 of 3", str(stop.exception.code))
         self.assertIn("you moved the mouse", str(stop.exception.code))
         self.assertEqual(self.pyautogui.hotkey.call_count, 2)  # steps 1 and 2 finished, step 3 never started
+
+
+class Watch(unittest.TestCase):
+    def test_logs_only_new_text_from_listed_apps_and_never_the_terminal(self):
+        import itertools
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from screen_intelligence import ax, desk
+
+        fronts = iter(["Safari", "Terminal", "Messages", "Safari"])
+        pages = iter([("Quiz", [{"text": "Q1"}, {"text": "Next"}]), ("Quiz", [{"text": "Q1"}, {"text": "Q2"}])])
+        clock = itertools.chain([0, 1, 1, 1, 1], itertools.repeat(999))  # start, 4 loop passes, then past --for
+        with tempfile.TemporaryDirectory() as d, \
+                patch.object(desk, "WATCH", Path(d) / "watch.log"), patch.object(desk, "RUNTIME", Path(d)), \
+                patch.object(desk.time, "time", lambda: next(clock)), patch.object(desk.time, "sleep"), patch.object(desk, "claude_pid", lambda: None), patch.object(desk, "idle_seconds", lambda: 0), \
+                patch.object(ax, "front_name", lambda: next(fronts)), \
+                patch.object(ax, "elements", lambda name: (None, *next(pages))):
+            desk.watch(["--for", "1", "Safari"])
+            lines = [l for l in (Path(d) / "watch.log").read_text().splitlines() if not l.startswith(("===", "---"))]
+        self.assertEqual(lines, ["[Safari — Quiz]", "Q1", "Next", "Q2"])
+
+    def test_stops_when_zac_walks_away(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from screen_intelligence import desk
+
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "WATCH", Path(d) / "watch.log"), \
+                patch.object(desk, "RUNTIME", Path(d)), patch.object(desk, "claude_pid", lambda: None), \
+                patch.object(desk, "idle_seconds", lambda: 16 * 60):
+            desk.watch(["Safari"])
+            self.assertIn("no input for 15 min", (Path(d) / "watch.log").read_text())

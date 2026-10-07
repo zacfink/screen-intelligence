@@ -18,6 +18,11 @@
   Hand off:
     desk until TEXT[|TEXT2] [App] [--gone] [--timeout S]   wait until a label containing TEXT appears (or, with
                               --gone, disappears), e.g. while Zac logs in. Checks every 2s, gives up after S (300).
+  Watch:
+    desk watch [--idle MIN] [--every S] [--for MIN] [App ...]   log the front window's text to runtime/watch.log
+                              while Zac works, every S seconds (3): only new lines, only the listed apps (any app if
+                              none, never the terminal). Runs until the session ends: the Claude session that started
+                              it exits, or no mouse/keyboard input for MIN minutes (15). --for adds a hard limit.
   Check:
     desk expect TEXT[|TEXT2] [App] [--timeout S]   stop unless a label containing TEXT shows up within S (3)
   Batch:
@@ -27,6 +32,7 @@
                               yourself and the batch finishes the step it's on, then stops.
 """
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -41,6 +47,8 @@ GRID = 100
 SHOT = RUNTIME / "desk.png"
 SCALE = RUNTIME / "desk-scale.json"  # screen points per screenshot pixel, from the last shot
 UI = RUNTIME / "desk-ui.json"  # element centres (screen points) from the last `ui`
+WATCH = RUNTIME / "watch.log"
+SKIP = {"Terminal", "iTerm2"}  # Claude's own output would flood the log
 UI_LINES = 80  # a dense page lists hundreds; past this a screenshot is cheaper
 CHANGE_WAIT = 1.5  # seconds a click gets to visibly change the screen
 CHANGED_PIXELS = 40  # pixels (640-wide grey frame) that must differ; a blinking text caret is ~15, an opened form thousands
@@ -206,6 +214,74 @@ def until(args):
     sys.exit(f"Timed out after {timeout:.0f}s waiting for {words[0]!r} to {'go' if gone else 'appear'}.")
 
 
+def claude_pid():
+    """The Claude Code process this watch belongs to, so it can stop when that session ends."""
+    pid = os.getppid()
+    while pid > 1:
+        ppid, comm = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True, text=True).stdout.split(None, 1) or ["0", ""]
+        if "claude" in comm.lower():
+            return pid
+        pid = int(ppid)
+    return None
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def idle_seconds():
+    import Quartz
+
+    return Quartz.CGEventSourceSecondsSinceLastEventType(Quartz.kCGEventSourceStateHIDSystemState, Quartz.kCGAnyInputEventType)
+
+
+def watch(args):
+    from . import ax
+
+    opts = {"--idle": 15.0, "--every": 3.0, "--for": 0.0}
+    apps, it = [], iter(args)
+    for a in it:
+        if a in opts:
+            opts[a] = float(next(it))
+        else:
+            apps.append(a)
+    ax.MAX_TEXT = 2000  # whole paragraphs, not button-sized snippets
+    RUNTIME.mkdir(exist_ok=True)
+    owner, start, seen = claude_pid(), time.time(), set()
+    with WATCH.open("a") as log:
+        log.write(f"=== watching {', '.join(apps) or 'any app'} from {time.strftime('%F %T')}\n")
+        while True:
+            # the session is over when Claude exits, Zac walks away, or an optional --for limit runs out
+            if owner and not alive(owner):
+                why = "Claude session ended"
+            elif idle_seconds() > opts["--idle"] * 60:
+                why = f"no input for {opts['--idle']:g} min"
+            elif opts["--for"] and time.time() - start > opts["--for"] * 60:
+                why = f"--for {opts['--for']:g} min"
+            else:
+                why = None
+            if why:
+                break
+            name = ax.front_name()
+            if name not in SKIP and (not apps or name in apps):
+                try:
+                    _, title, found = ax.elements(name)
+                except SystemExit:  # no window right now (closing, switching)
+                    found, title = [], ""
+                new = [t for t in [f"[{name} — {title}]"] + [e["text"] for e in found if e["text"]] if t not in seen]
+                if new:  # a page already logged adds nothing, so the log stays readable
+                    log.write(f"--- {time.strftime('%T')}\n" + "\n".join(new) + "\n")
+                    log.flush()
+                    seen.update(new)
+            time.sleep(opts["--every"])
+        log.write(f"=== stopped {time.strftime('%T')}: {why}\n")
+    print(f"{WATCH} (stopped: {why})")
+
+
 def do(command, args):
     match command:
         case "ui":
@@ -242,6 +318,8 @@ def do(command, args):
             time.sleep(float(args[0]))
         case "until":
             until(args)
+        case "watch":
+            watch(args)
         case "expect":
             until(args if "--timeout" in args else args + ["--timeout", "3"])
         case "run":

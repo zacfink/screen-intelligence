@@ -52,6 +52,18 @@ def front_app(name=None):
     return NSWorkspace.sharedWorkspace().frontmostApplication()
 
 
+def front_name():
+    """Owner of the topmost window. Unlike frontmostApplication, this stays current in a long-running
+    process (NSWorkspace only refreshes on a run loop, which `desk watch` doesn't have)."""
+    import Quartz
+
+    options = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+    for w in Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID):  # front to back
+        if w.get("kCGWindowLayer") == 0:
+            return w.get("kCGWindowOwnerName", "")
+    return ""
+
+
 def elements(app_name=None):
     """Visible, labelled elements of the app's focused window, in reading order."""
     app = front_app(app_name)
