@@ -112,6 +112,7 @@ class Watch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, \
                 patch.object(desk, "WATCH", Path(d) / "watch.log"), patch.object(desk, "RUNTIME", Path(d)), \
                 patch.object(desk.time, "time", lambda: next(clock)), patch.object(desk.time, "sleep"), patch.object(desk, "claude_pid", lambda: None), patch.object(desk, "idle_seconds", lambda: 0), \
+                patch.object(desk, "show_dot", lambda: None), patch.object(desk, "rest", lambda s: None), \
                 patch.object(ax, "front_name", lambda: next(fronts)), \
                 patch.object(ax, "elements", lambda name: (None, *next(pages))):
             desk.watch(["--for", "1", "Safari"])
@@ -127,6 +128,6 @@ class Watch(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d, patch.object(desk, "WATCH", Path(d) / "watch.log"), \
                 patch.object(desk, "RUNTIME", Path(d)), patch.object(desk, "claude_pid", lambda: None), \
-                patch.object(desk, "idle_seconds", lambda: 16 * 60):
+                patch.object(desk, "idle_seconds", lambda: 16 * 60), patch.object(desk, "show_dot", lambda: None):
             desk.watch(["Safari"])
             self.assertIn("no input for 15 min", (Path(d) / "watch.log").read_text())

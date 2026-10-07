@@ -239,6 +239,34 @@ def idle_seconds():
     return Quartz.CGEventSourceSecondsSinceLastEventType(Quartz.kCGEventSourceStateHIDSystemState, Quartz.kCGAnyInputEventType)
 
 
+def show_dot():
+    """A red dot in the menu bar for as long as the watch runs, so Zac can always tell it's recording.
+    It needs a run loop to draw, which rest() pumps instead of sleeping."""
+    from AppKit import (NSApplication, NSApplicationActivationPolicyAccessory, NSAttributedString, NSColor,
+                        NSForegroundColorAttributeName, NSStatusBar, NSVariableStatusItemLength)
+
+    NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)  # no Dock icon
+    item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
+    item.button().setAttributedTitle_(NSAttributedString.alloc().initWithString_attributes_(
+        "●", {NSForegroundColorAttributeName: NSColor.systemRedColor()}))
+    item.button().setToolTip_("Claude is reading your screen (desk watch)")
+    rest(0.1)
+    return item
+
+
+def hide_dot(item):
+    if item is not None:
+        from AppKit import NSStatusBar
+
+        NSStatusBar.systemStatusBar().removeStatusItem_(item)
+
+
+def rest(seconds):
+    from Foundation import NSDate, NSRunLoop
+
+    NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(seconds))
+
+
 def watch(args):
     from . import ax
 
@@ -252,6 +280,7 @@ def watch(args):
     ax.MAX_TEXT = 2000  # whole paragraphs, not button-sized snippets
     RUNTIME.mkdir(exist_ok=True)
     owner, start, seen = claude_pid(), time.time(), set()
+    dot = show_dot()  # kept referenced so it stays in the menu bar until the process exits
     with WATCH.open("a") as log:
         log.write(f"=== watching {', '.join(apps) or 'any app'} from {time.strftime('%F %T')}\n")
         while True:
@@ -277,8 +306,9 @@ def watch(args):
                     log.write(f"--- {time.strftime('%T')}\n" + "\n".join(new) + "\n")
                     log.flush()
                     seen.update(new)
-            time.sleep(opts["--every"])
+            rest(opts["--every"])
         log.write(f"=== stopped {time.strftime('%T')}: {why}\n")
+    hide_dot(dot)
     print(f"{WATCH} (stopped: {why})")
 
 
