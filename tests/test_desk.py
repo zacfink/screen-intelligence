@@ -95,3 +95,42 @@ class Run(unittest.TestCase):
         self.assertIn("before step 3 of 3", str(stop.exception.code))
         self.assertIn("you moved the mouse", str(stop.exception.code))
         self.assertEqual(self.pyautogui.hotkey.call_count, 2)  # steps 1 and 2 finished, step 3 never started
+
+
+class Map(unittest.TestCase):
+    def test_mouse_map_keeps_ui_numbers_and_skips_plain_text_and_unlabelled(self):
+        from screen_intelligence.desk import KEYS, moves
+
+        found = [{"role": "text", "text": "Welcome"}, {"role": "button", "text": "Add Shortcut"},
+                 {"role": "button", "text": ""}, {"role": "link", "text": "Help"}]
+        m = moves("Shortcuts", "Claude Speak", found)
+        self.assertEqual(m["mouse"], {"#2": "button Add Shortcut", "#4": "link Help"})
+        self.assertIs(m["keyboard"], KEYS)
+        self.assertNotIn("cmd+q", KEYS.values())  # nothing destructive in the keyboard map
+
+
+class Batch(unittest.TestCase):
+    def test_type_keeps_shell_quotes_and_brackets(self):
+        from screen_intelligence.desk import steps
+
+        self.assertEqual(steps("type cd ~/x && claude 'Remove the tab (the button)'; key return"),
+                         [["type", "cd ~/x && claude 'Remove the tab (the button)'"], ["key", "return"]])
+        self.assertEqual(steps('type --keys "September"'), [["type", "--keys", "September"]])
+
+
+class Find(unittest.TestCase):
+    def test_close_up_box_maps_back_to_the_full_screenshot(self):
+        from unittest.mock import patch
+
+        from PIL import Image
+
+        from screen_intelligence import desk
+
+        # pass 1 puts it in the middle of a 3600x2338 screen; pass 2 says it's the top-left quarter of the close-up
+        answers = iter([{"box": {"left": .45, "right": .55, "top": .45, "bottom": .55}, "confidence": .9, "visible": 1},
+                        {"box": {"left": 0, "right": .5, "top": 0, "bottom": .5}, "confidence": .95, "visible": 1}])
+        with patch.object(desk, "jev", lambda *a: next(answers)):
+            (l, t, r, b), a = desk.find_box(Image.new("RGB", (3600, 2338)), "x")
+        # pass 1 box is 360x234, so the crop is 576x560 (0.8 of the box each side, at least 280) around (1800, 1169)
+        self.assertEqual((round(l), round(t), round(r), round(b)), (1512, 889, 1800, 1169))
+        self.assertEqual(a["confidence"], .95)

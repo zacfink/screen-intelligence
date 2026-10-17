@@ -4,8 +4,12 @@
     desk ui [--find TEXT] [--all] [--full] [App]   front window's buttons, fields and labels as numbered lines
                               (first 80 unless --all; --find keeps lines containing TEXT)
     desk shot                 screenshot -> runtime/desk.png (1280 wide, grid every 100px), prints its path
+    desk see "Is there an error dialog?"   Jev answers yes/no about the screen (probability); no screenshot to read
+    desk find "the blue Submit button"     Jev finds it on screen (two passes: whole screen, then a close-up crop),
+                              prints its centre in screenshot pixels; then `click @` clicks it. For apps `ui` can't read.
   Act:
     desk click #N             click element N from the last `ui`
+    desk click @              click what the last `find` found
     desk click X Y [right|double]   click at (X, Y) in the last screenshot's pixels
     desk drag X1 Y1 X2 Y2     press, move slowly, release (screenshot pixels)
     desk move X Y | #N        put the cursor there without clicking (scroll goes to whatever is under it)
@@ -18,6 +22,9 @@
   Hand off:
     desk until TEXT[|TEXT2] [App] [--gone] [--timeout S]   wait until a label containing TEXT appears (or, with
                               --gone, disappears), e.g. while Zac logs in. Checks every 2s, gives up after S (300).
+  Map:
+    desk map [App]            the moves available right now, as JSON: the fixed keyboard map plus a mouse map of
+                              this screen's clickable elements (same #N numbers as `ui`, so `click #N` works after it)
   Check:
     desk expect TEXT[|TEXT2] [App] [--timeout S]   stop unless a label containing TEXT shows up within S (3)
   Batch:
@@ -28,6 +35,7 @@
 """
 import json
 import shlex
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -41,6 +49,21 @@ GRID = 100
 SHOT = RUNTIME / "desk.png"
 SCALE = RUNTIME / "desk-scale.json"  # screen points per screenshot pixel, from the last shot
 UI = RUNTIME / "desk-ui.json"  # element centres (screen points) from the last `ui`
+FOUND = RUNTIME / "desk-found.json"  # centre (screen points) of what the last `find` found
+JEV_PYTHON = Path.home() / ".venvs/typesafe/bin/python"  # the TypeSafe SDK lives there, not in this Python
+JEV_LOOK = Path(__file__).with_name("jev_look.py")
+CLOSE_UP = 560  # native pixels on each side of the second-pass crop: Jev answers in 0.01 steps, ~6px here vs ~13 on the whole screen
+MAX_SIDE = 1568  # Jev rejects images over 1568px (or under 280) on a side
+# The keyboard map: a small, fixed set of shortcuts that work across most Mac apps. Nothing destructive (no quit,
+# delete or send) — those stay with Claude.
+KEYS = {
+    "address bar": "cmd+l", "new tab": "cmd+t", "close tab": "cmd+w", "back": "cmd+[", "forward": "cmd+]",
+    "reload": "cmd+r", "find": "cmd+f", "submit": "return", "cancel": "escape", "next field": "tab",
+    "previous field": "shift+tab", "select all": "cmd+a", "copy": "cmd+c", "paste": "cmd+v", "undo": "cmd+z",
+    "page down": "pagedown", "page up": "pageup", "top": "cmd+up", "bottom": "cmd+down", "switch app": "cmd+tab",
+}
+CLICKABLE = {"button", "link", "field", "textarea", "search", "checkbox", "radio", "popup", "combo", "menu", "tab",
+             "slider", "item"}
 UI_LINES = 80  # a dense page lists hundreds; past this a screenshot is cheaper
 CHANGE_WAIT = 1.5  # seconds a click gets to visibly change the screen
 CHANGED_PIXELS = 40  # pixels (640-wide grey frame) that must differ; a blinking text caret is ~15, an opened form thousands
@@ -57,7 +80,9 @@ def load(path, what):
 
 
 def point(args):
-    """#N -> centre of element N from the last ui; X Y -> screenshot pixels scaled to the screen."""
+    """#N -> centre of element N from the last ui; @ -> what the last find found; X Y -> screenshot pixels."""
+    if args[0] == "@":
+        return tuple(load(FOUND, "find")), args[1:]
     if args[0].startswith("#"):
         from .ax import bring_to_front
 
@@ -126,17 +151,38 @@ def paste(text):
     subprocess.run(["pbcopy"], input=old)
 
 
+def split_batch(text):
+    """Split on ; outside quotes, keeping each step's raw text (quotes included)."""
+    out, cur, quote = [], "", None
+    for ch in text:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == ";":
+            out, cur = out + [cur], ""
+            continue
+        cur += ch
+    return [c.strip() for c in out + [cur] if c.strip()]
+
+
 def steps(text):
-    """Split a batch on ; outside quotes. # isn't a comment here, since #N means element N."""
-    lex = shlex.shlex(text, posix=True, punctuation_chars=";")
-    lex.whitespace_split, lex.commenters = True, ""
-    out, step = [], []
-    for token in lex:
-        if token == ";":
-            out, step = out + [step] if step else out, []
+    """Split a batch into steps. `type` keeps its text exactly as written (quotes, brackets, &&), minus one pair of
+    wrapping quotes, so shell commands survive. Other steps are split like a shell. # isn't a comment: #N is element N."""
+    out = []
+    for raw in split_batch(text):
+        word, _, rest = raw.partition(" ")
+        if word == "type":
+            keys = rest.startswith("--keys ")
+            rest = rest[7:].strip() if keys else rest.strip()
+            if len(rest) > 1 and rest[0] == rest[-1] and rest[0] in "'\"":
+                rest = rest[1:-1]
+            out.append(["type"] + (["--keys"] if keys else []) + ([rest] if rest else []))
         else:
-            step.append(token)
-    return out + [step] if step else out
+            lex = shlex.shlex(raw, posix=True)
+            lex.whitespace_split, lex.commenters = True, ""
+            out.append(list(lex))
+    return out
 
 
 def shot():
@@ -164,6 +210,66 @@ def shot():
     print(SHOT)
 
 
+def jev(mode, text, image):
+    """One Jev question about an image, via the TypeSafe venv. Returns its JSON answer."""
+    out = subprocess.run([str(JEV_PYTHON), "-I", str(JEV_LOOK), mode, text, str(image)], capture_output=True, text=True)
+    if out.returncode:
+        sys.exit(f"Jev failed: {(out.stderr or out.stdout).strip().splitlines()[-1]}")
+    return json.loads(out.stdout)
+
+
+def fit(image):
+    """Shrink an image so neither side is over MAX_SIDE (Jev's limit)."""
+    k = min(1, MAX_SIDE / max(image.size))
+    return image if k == 1 else image.resize((round(image.width * k), round(image.height * k)))
+
+
+def find_box(full, text):
+    """Where `text` is in a full-resolution screenshot, as a native-pixel box, plus Jev's answer. Pass 1 looks at the
+    whole screen at 1280 wide; pass 2 asks again on a close-up crop around that box, which is about twice as exact."""
+    RUNTIME.mkdir(exist_ok=True)
+    W, H = full.size
+    first = full.resize((WIDTH, round(H * WIDTH / W)))
+    first.save(RUNTIME / "jev-1.png")
+    a = jev("box", text, RUNTIME / "jev-1.png")
+    b = a["box"]
+    l, t, r, bt = b["left"] * W, b["top"] * H, b["right"] * W, b["bottom"] * H
+    cx, cy = (l + r) / 2, (t + bt) / 2
+    half_w, half_h = max((r - l) * 0.8, CLOSE_UP / 2), max((bt - t) * 0.8, CLOSE_UP / 2)
+    x0, y0 = max(0, round(cx - half_w)), max(0, round(cy - half_h))
+    x1, y1 = min(W, round(cx + half_w)), min(H, round(cy + half_h))
+    crop = full.crop((x0, y0, x1, y1))
+    if min(crop.size) >= 280:  # at a screen edge the crop can get too thin; keep pass 1 then
+        fit(crop).save(RUNTIME / "jev-2.png")
+        a2 = jev("box", text, RUNTIME / "jev-2.png")
+        if a2["visible"] >= 0.5:  # the close-up still shows it, so trust its finer box
+            b2, cw, ch = a2["box"], x1 - x0, y1 - y0
+            l, t, r, bt = x0 + b2["left"] * cw, y0 + b2["top"] * ch, x0 + b2["right"] * cw, y0 + b2["bottom"] * ch
+            a = {**a2, "visible": max(a["visible"], a2["visible"])}
+    return (l, t, r, bt), a
+
+
+def find(text):
+    screen_w, _ = pyautogui.size()
+    full = pyautogui.screenshot()
+    k = full.width / screen_w  # native pixels per screen point (2 on Retina)
+    (l, t, r, b), a = find_box(full, text)
+    x, y = (l + r) / 2 / k, (t + b) / 2 / k  # screen points
+    scale = screen_w / WIDTH
+    SCALE.write_text(json.dumps(scale))  # so `click X Y` with the printed pixels lands here too
+    FOUND.write_text(json.dumps([round(x), round(y)]))
+    print(f"found at {round(x / scale)} {round(y / scale)} (screenshot px) · confidence {a['confidence']:.2f} · visible {a['visible']:.2f}")
+    if a["visible"] < 0.5:
+        return f"Jev doesn't think {text!r} is on screen (visible {a['visible']:.2f}); the box is a guess"
+
+
+def see(text):
+    RUNTIME.mkdir(exist_ok=True)
+    image = pyautogui.screenshot()
+    image.resize((WIDTH, round(image.height * WIDTH / image.width))).save(RUNTIME / "jev-1.png")
+    print(f"yes {jev('see', text, RUNTIME / 'jev-1.png')['yes']:.2f}")
+
+
 def ui(args):
     from . import ax
 
@@ -187,9 +293,26 @@ def ui(args):
         print(f"... {len(lines) - UI_LINES} more: use --find TEXT, --all, or `desk shot`")
 
 
+def moves(app, title, found):
+    """The full menu of moves: every keyboard shortcut, plus each labelled clickable element on screen by its #N."""
+    mouse = {f"#{i}": f"{e['role']} {e['text']}" for i, e in enumerate(found, 1) if e["role"] in CLICKABLE and e["text"]}
+    return {"app": app, "window": title, "keyboard": KEYS, "mouse": mouse}
+
+
+def map_(args):
+    from . import ax
+
+    RUNTIME.mkdir(exist_ok=True)
+    app, title, found = ax.elements(" ".join(args) or None)
+    UI.write_text(json.dumps({"pid": app.processIdentifier(), "elements": found}))  # so `click #N` matches
+    print(json.dumps(moves(app.localizedName(), title, found), indent=1, ensure_ascii=False))
+
+
 def until(args):
+    from . import ax
     from .ax import elements
 
+    ax.MAX_TEXT = 1_000_000  # match anywhere, e.g. inside a terminal's single big text area
     gone = "--gone" in args
     timeout = float(args[args.index("--timeout") + 1]) if "--timeout" in args else 300
     words = [a for i, a in enumerate(args) if a not in ("--gone", "--timeout") and (i == 0 or args[i - 1] != "--timeout")]
@@ -210,8 +333,14 @@ def do(command, args):
     match command:
         case "ui":
             ui(args)
+        case "map":
+            map_(args)
         case "shot":
             shot()
+        case "find":
+            return find(" ".join(args))
+        case "see":
+            see(" ".join(args))
         case "click":
             (x, y), rest = point(args)
             if not click(x, y, rest[0] if rest else "left"):
