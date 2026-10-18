@@ -10,6 +10,11 @@ decision model, [Jev](https://typesafe.ai) by TypeSafe, does the looking and cli
 In use, it filled in a real internship application (posting search, three file uploads, document package) and
 stopped before Submit, which it leaves to a person.
 
+![desk do typing into a search box, picking from a dropdown and clicking four buttons on a test page](docs/desk-demo.gif)
+
+*`desk do` running a 9-step plan in real time: type a search, pick "Resume" from a dropdown, then click Save, the
+star icon, Share and the tiny ? button. Every step landed.*
+
 ## How fast and how accurate
 
 Measured with `desk demo` and `desk train` (a test page of 12 buttons, big to tiny icons, in random places):
