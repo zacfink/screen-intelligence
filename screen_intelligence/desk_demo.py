@@ -69,7 +69,7 @@ def run(args):
     RUNTIME.mkdir(exist_ok=True)
     page(targets, seed)
     subprocess.run(["open", "-a", "Safari", str(PAGE)])
-    desk.until(["desk demo", "Safari", "--timeout", "10"])
+    desk.until([f"seed {seed}", "Safari", "--timeout", "10"])  # this run's page, not an older demo tab
     time.sleep(0.8)  # let the page paint before the first look
     rows, last = [], ""
     for i, text, desc, _ in targets:
