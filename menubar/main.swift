@@ -17,11 +17,63 @@ struct Status: Decodable {
     var log: [String]?
 }
 
+/// A thin line straight across the top of every screen, just under the menu bar, filling left to right as steps
+/// finish. It sizes itself to each display, ignores the mouse, and only shows while a task runs (accent colour;
+/// green when done, red when stopped, then it fades).
+final class ProgressLine {
+    var windows: [NSWindow] = []
+    var fills: [NSView] = []
+    let height: CGFloat = 3
+
+    func layout() {  // one window per screen, rebuilt when screens change
+        windows.forEach { $0.orderOut(nil) }
+        windows = []; fills = []
+        for screen in NSScreen.screens {
+            let barHeight = screen.frame.maxY - screen.visibleFrame.maxY  // the menu bar on this display
+            let frame = NSRect(x: screen.frame.minX, y: screen.frame.maxY - barHeight - height,
+                               width: screen.frame.width, height: height)
+            let w = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+            w.isOpaque = false; w.backgroundColor = .clear; w.hasShadow = false
+            w.ignoresMouseEvents = true
+            w.level = .statusBar
+            w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            let track = NSView(frame: NSRect(origin: .zero, size: frame.size))
+            track.wantsLayer = true
+            track.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+            let fill = NSView(frame: NSRect(x: 0, y: 0, width: 0, height: height))
+            fill.wantsLayer = true
+            fill.layer?.cornerRadius = height / 2
+            track.addSubview(fill)
+            w.contentView = track
+            windows.append(w); fills.append(fill)
+        }
+    }
+
+    func show(state: String, fraction: Double) {
+        if windows.count != NSScreen.screens.count { layout() }
+        let color: NSColor = state == "done" ? .systemGreen : state == "stopped" ? .systemRed : .controlAccentColor
+        let visible = state == "running" || state == "done" || state == "stopped"
+        for (w, fill) in zip(windows, fills) {
+            fill.layer?.backgroundColor = color.cgColor
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                fill.animator().frame.size.width = w.frame.width * CGFloat(max(0, min(1, fraction)))
+                w.animator().alphaValue = visible ? 1 : 0
+            }
+            if visible { w.orderFrontRegardless() }
+        }
+    }
+}
+
 final class App: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    let line = ProgressLine()
     var last: Double = 0
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        line.layout()
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                               object: nil, queue: .main) { _ in self.line.layout() }
         refresh()
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in self.refresh() }
     }
@@ -45,6 +97,10 @@ final class App: NSObject, NSApplicationDelegate {
     func show(_ s: Status?) {
         guard let button = item.button else { return }
         let state = s?.state ?? "idle"
+        // done/stopped show for 10 s across the top, then the line fades; the menu bar item keeps it for a minute
+        let recent = Date().timeIntervalSince1970 - (s?.updated ?? 0) < 10
+        let fraction = state == "running" ? Double(max(0, (s?.n ?? 1) - 1)) / Double(max(1, s?.of ?? 1)) : 1
+        line.show(state: state == "running" || recent ? state : "idle", fraction: fraction)
         let icon = ["running": "cursorarrow.motionlines", "done": "checkmark.circle",
                     "stopped": "exclamationmark.triangle"][state] ?? "sparkle"
         button.image = symbol(icon)
