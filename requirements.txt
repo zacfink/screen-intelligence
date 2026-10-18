@@ -7,3 +7,6 @@ opencv-python
 numpy
 pytesseract
 thefuzz
+pyobjc-framework-Cocoa
+pyobjc-framework-ApplicationServices
+pyobjc-framework-Quartz
