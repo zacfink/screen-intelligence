@@ -33,6 +33,8 @@
   Jev writes:
     desk jevtype "question" [--max 80] [--dry]   Jev picks every character of an answer and it's typed as it goes
     desk recipe list | show NAME | NAME key=value...   run a saved plan from recipes/ with its blanks filled in
+  Menu bar:
+    desk status running|done|stopped|idle "task" ["step" [n of]]   show progress in the Claude Status menu bar app
   Demo:
     desk train [N]            N practice rounds of random tasks on the demo page, every move scored (labelled data)
     desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
@@ -134,6 +136,35 @@ def changed(before, after):
 
     diff = ImageChops.difference(before, after).point(lambda v: 255 if v > 24 else 0)
     return diff.histogram()[255] >= CHANGED_PIXELS
+
+
+STATUS = RUNTIME / "status.json"  # read by the Claude Status menu bar app (menubar/)
+STOP = RUNTIME / "stop"  # written by its "Stop After This Step"
+
+
+def status(state, task=None, step=None, n=None, of=None):
+    """Tell the menu bar what's happening: state is running | done | stopped | idle. Keeps the last 10 steps as a log."""
+    RUNTIME.mkdir(exist_ok=True)
+    try:
+        old = json.loads(STATUS.read_text())
+    except (OSError, ValueError):
+        old = {}
+    task = task or old.get("task")
+    log = old.get("log", []) if task == old.get("task") else []
+    if step and step != old.get("step"):
+        log = (log + [step])[-10:]
+    new = {"state": state, "task": task, "step": step, "n": n, "of": of, "updated": time.time(), "log": log}
+    tmp = STATUS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(new, ensure_ascii=False))
+    tmp.replace(STATUS)  # atomic, so the menu bar never reads half a file
+
+
+def stop_requested():
+    """True once if Zac chose Stop in the menu bar (the flag is consumed)."""
+    if STOP.exists():
+        STOP.unlink()
+        return True
+    return False
 
 
 def glide(x, y):
@@ -428,6 +459,9 @@ def do(command, args):
             map_(args)
         case "shot":
             shot()
+        case "status":  # desk status running|done|stopped|idle "task" ["step" [n of]]: for any long task, not only desk's
+            status(args[0], *(args[1:3] + [None] * (2 - len(args[1:3]))),
+                   *(int(a) for a in args[3:5]))
         case "find":
             return find(" ".join(args))
         case "highlight":

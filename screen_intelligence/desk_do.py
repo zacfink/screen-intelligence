@@ -279,7 +279,12 @@ def recipe(args):
 
 def run(args):
     """Run the plan, then always print what's on screen, so the caller's next move needs no screenshot."""
+    task = next((a for a in args if not a.startswith("--")), "")
+    title = (flags(args, "--title") or [task[:60] + ("…" if len(task) > 60 else "")])[0]
+    desk.stop_requested()  # an old Stop click doesn't count for this run
+    desk.status("running", title, "Starting", 0, len(plan(task)))
     problem = _run(args)
+    desk.status("stopped" if problem else "done", title, problem or "All steps done")
     if problem:
         print(problem)
     report((flags(args, "--app") or ["Safari"])[0], pyautogui.size()[1])
@@ -299,9 +304,13 @@ def _run(args):
     desk.jev_start()
     screen_w, screen_h = pyautogui.size()
     history, moves, left_at = [], 0, None
-    for s_i, step in enumerate(plan(task), 1):
+    steps = plan(task)
+    for s_i, step in enumerate(steps, 1):
         tries = []
         t0 = time.time()
+        if desk.stop_requested():
+            return f"Stopped before step {s_i} ({step}): you chose Stop in the menu bar"
+        desk.status("running", None, step, s_i, len(steps))
         if only_url and not on_page(only_url):
             return f"Stopped before step {s_i} ({step}): the front tab isn't {only_url} any more"
         try:
