@@ -32,6 +32,7 @@
                               what's been done; stops when done, stuck, repeating, or before anything risky
   Jev writes:
     desk jevtype "question" [--max 80] [--dry]   Jev picks every character of an answer and it's typed as it goes
+    desk recipe list | show NAME | NAME key=value...   run a saved plan from recipes/ with its blanks filled in
   Demo:
     desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
   Check:
@@ -432,6 +433,10 @@ def do(command, args):
             return find(" ".join(args), show=True)
         case "see":
             see(" ".join(args))
+        case "recipe":
+            from . import desk_do
+
+            return desk_do.recipe(args)
         case "do":
             from . import desk_do
 

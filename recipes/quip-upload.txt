@@ -1,0 +1,12 @@
+# Upload one document to MyCareer from a QUIP posting's application page (the "Upload Document" button under
+# MISSING DOCUMENTS) or from My Documents.
+# vars: name (what MyCareer calls it), type (Cover Letter | Resume | Unofficial Transcripts), file (full path)
+# allow-risky: uploading a document to his own MyCareer documents, not an application
+# Built 2026-10-17 from the AMD AGS uploads.
+click the Upload Document button
+click the Name field
+type "{name}"
+click the Type dropdown
+choose "{type}"
+attach "{file}"
+click the blue Upload Document button below the form

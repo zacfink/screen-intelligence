@@ -10,7 +10,9 @@ paying (those go back to Claude/Zac), when it repeats itself, or after --steps.
 """
 import json
 import re
+import subprocess
 import time
+from pathlib import Path
 
 import pyautogui
 
@@ -140,6 +142,11 @@ def attach(path):
 def direct(step, allow_risky=True):
     """Steps that need no judgment run without asking Jev: type "text", press <key>, choose "Option" (in an open
     dropdown), attach "/path/file". Returns what was done, or None. A failed attach/choose raises StepFailed."""
+    m = re.fullmatch(r'open\s+"(https?://[^"]+)"', step.strip(), re.I)
+    if m:  # go to a page in the app's front window, then give it a moment to load
+        subprocess.run(["osascript", "-e", f'tell application "Safari" to set URL of current tab of front window to "{m.group(1)}"'])
+        time.sleep(2.5)
+        return f"opened {m.group(1)}"
     m = re.fullmatch(r'attach\s+(?:the\s+file\s+)?"([^"]+)"', step.strip(), re.I)
     if m:
         did, problem = attach(m.group(1))
@@ -214,6 +221,34 @@ def pick(answer):
     return answer["choice"]
 
 
+RECIPES = Path(__file__).resolve().parent.parent / "recipes"
+
+
+def recipe(args):
+    """desk recipe list | show NAME | NAME key=value...: a saved plan (one step per line, # comments, {blanks}),
+    filled in and run with desk do. Built from a flow that worked once, so repeats need no decisions."""
+    if not args or args[0] == "list":
+        for f in sorted(RECIPES.glob("*.txt")):
+            print(f"{f.stem:16} {next((l[2:] for l in f.read_text().splitlines() if l.startswith('# vars:')), '')}")
+        return None
+    if args[0] == "show":
+        print((RECIPES / f"{args[1]}.txt").read_text())
+        return None
+    path = RECIPES / f"{args[0]}.txt"
+    if not path.exists():
+        return f"no recipe {args[0]!r}; `desk recipe list`"
+    values = dict(a.split("=", 1) for a in args[1:] if "=" in a and not a.startswith("--"))
+    steps = [l.strip() for l in path.read_text().splitlines() if l.strip() and not l.startswith("#")]
+    missing = sorted({v for l in steps for v in re.findall(r"{(\w+)}", l)} - values.keys())
+    if missing:
+        return f"recipe {args[0]} needs: " + ", ".join(f"{m}=..." for m in missing)
+    plan = "; ".join(re.sub(r"{(\w+)}", lambda m: values[m.group(1)], l) for l in steps)
+    extra = [a for a in args[1:] if a.startswith("--")]
+    if re.search(r"^# allow-risky", path.read_text(), re.M):  # a recipe with no final Submit/Send step in it
+        extra.append("--allow-risky")
+    return run([plan] + extra)
+
+
 def run(args):
     """Run the plan, then always print what's on screen, so the caller's next move needs no screenshot."""
     problem = _run(args)
@@ -228,7 +263,7 @@ def _run(args):
     app_name = (flags(args, "--app") or ["Safari"])[0]
     texts = flags(args, "--type")
     budget = int((flags(args, "--steps") or [15])[0])
-    allow_risky = "--allow-risky" in args  # only once Zac has OK'd the sends/submits in this task
+    allow_risky = "--allow-risky" in args  # lets planned return/submit keys through; risky clicks still stop
     desk.do("open", [app_name])
     desk.jev_start()
     screen_w, screen_h = pyautogui.size()
@@ -266,7 +301,9 @@ def _run(args):
             move = pick(a["action"])
             if move == "stuck":
                 return f"Jev is stuck on step {s_i} ({step}): it needs a person, or nothing on screen does it"
-            if a["risky"] >= RISKY_AT and not allow_risky and (move.startswith("click") or move == "key submit"):
+            # --allow-risky only lets a planned return/submit key through; a risky-looking click always stops
+            # (on an already-submitted posting the button near "Apply" is "Cancel Application")
+            if a["risky"] >= RISKY_AT and (move.startswith("click") or (move == "key submit" and not allow_risky)):
                 return f"Stopped before step {s_i} ({step}): it looks like sending/submitting/deleting (risky {a['risky']:.2f}); that's Zac's call"
             e = found[int(a["element"]["choice"][1:]) - 1] if "element" in a else None
             b = a["point"]["box"]

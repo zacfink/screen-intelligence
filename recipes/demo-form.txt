@@ -1,0 +1,6 @@
+# Fill the desk demo page's form: a check that recipes, choose and attach still work. Open it with `desk demo`.
+# vars: kind (Cover Letter | Resume | Transcript), file (full path)
+click the Type dropdown at the top right
+choose "{kind}"
+attach "{file}"
+click the big green Save button

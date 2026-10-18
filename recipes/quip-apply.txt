@@ -1,0 +1,20 @@
+# Apply to a QUIP posting on MyCareer, stopping before Submit. Needs: logged in to MyCareer in Safari, and the
+# cover letter for this job already uploaded (run quip-upload first). Resume + transcript are reused.
+# Stops by itself if the posting says Application Submitted (the button there is Cancel Application).
+# vars: job (posting ID), package (a name for this application), cover (start of the cover letter's name)
+# allow-risky: its only return is the job ID search; it never clicks Submit, Zac does
+# Built 2026-10-17 from the AMD AGS application (163398), done by hand that evening.
+open "https://careers.sso.queensu.ca/myAccount/QUIPStudents/postings.htm"
+click the text box for entering a job ID, under SEARCH POSTING
+type "{job}"
+press return
+click the APPLY button under the job title (not Cancel Application)
+click the "Create a customized application package" option
+click the Package Name field
+type "{package}"
+click the Cover Letter dropdown
+choose "{cover}"
+click the Resume dropdown
+choose "Zac Finkelstein Resume"
+click the Unofficial Transcripts dropdown
+choose "Zac Finkelstein - Unofficial"
