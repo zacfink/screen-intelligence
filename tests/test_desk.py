@@ -134,3 +134,16 @@ class Find(unittest.TestCase):
         # pass 1 box is 360x234, so the crop is 576x560 (0.8 of the box each side, at least 280) around (1800, 1169)
         self.assertEqual((round(l), round(t), round(r), round(b)), (1512, 889, 1800, 1169))
         self.assertEqual(a["confidence"], .95)
+
+
+class Do(unittest.TestCase):
+    def test_task_splits_into_ordered_steps(self):
+        from screen_intelligence.desk_do import plan
+
+        self.assertEqual(plan("Click Save, then Share; then the star."), ["Click Save", "Share", "the star"])
+
+    def test_a_timid_stuck_gives_way_to_the_best_real_move(self):
+        from screen_intelligence.desk_do import pick
+
+        self.assertEqual(pick({"choice": "stuck", "probabilities": {"stuck": .4, "click_point": .35}}), "click_point")
+        self.assertEqual(pick({"choice": "stuck", "probabilities": {"stuck": .7, "click_point": .2}}), "stuck")

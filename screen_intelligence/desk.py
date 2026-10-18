@@ -26,6 +26,9 @@
   Map:
     desk map [App]            the moves available right now, as JSON: the fixed keyboard map plus a mouse map of
                               this screen's clickable elements (same #N numbers as `ui`, so `click #N` works after it)
+  Jev drives:
+    desk do "goal" [--app Safari] [--type "text"]... [--steps 15]   Jev picks each move from the screen, the goal and
+                              what's been done; stops when done, stuck, repeating, or before anything risky
   Demo:
     desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
   Check:
@@ -397,6 +400,10 @@ def do(command, args):
             return find(" ".join(args), show=True)
         case "see":
             see(" ".join(args))
+        case "do":
+            from . import desk_do
+
+            return desk_do.run(args)
         case "demo":
             from . import desk_demo
 

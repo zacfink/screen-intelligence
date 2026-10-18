@@ -3,6 +3,8 @@ desk calls it as a subprocess and gets one JSON line back.
 
   jev_look.py box "the Submit button" IMAGE    -> {"box": {top, bottom, left, right}, "confidence", "visible"}
   jev_look.py see "Is there an error?" IMAGE   -> {"yes": probability}
+  jev_look.py raw SPEC_JSON IMAGE              -> any questions: SPEC = {"state": {...}, "questions": {name: {"type":
+                                                  "noul"|"choice"|"box", "instructions", "criteria"}}}; `screen` is the image
   jev_look.py serve                            -> one JSON line in ([mode, text, image]), one out, until stdin closes:
                                                   one Python start and one open connection for a whole desk run
 
@@ -14,7 +16,7 @@ import re
 import sys
 from pathlib import Path
 
-from typesafe_sdk import Box, Image, Noul, TypeSafeClient
+from typesafe_sdk import Box, Choice, Image, Noul, TypeSafeClient
 
 MODEL = "jev-1.14.0"  # jev-latest is still 1.13, which has no Box
 HEADERS = {"TypeSafe-Danger-Zone-Images": "true"}
@@ -30,7 +32,28 @@ def api_key():
     return m.group(1)
 
 
+def raw(client, spec, image):
+    """Free-form request for desk do: the caller writes the state and questions, the image goes in as `screen`."""
+    kinds = {"noul": lambda q: Noul(instructions=q["instructions"]), "box": lambda q: Box(instructions=q["instructions"]),
+             "choice": lambda q: Choice(instructions=q["instructions"], criteria=q["criteria"])}
+    questions = {k: kinds[q["type"]](q) for k, q in spec["questions"].items()}
+    a = client.system_one(model=MODEL, state={**spec["state"], "screen": Image(Path(image))}, questions=questions,
+                          extra_headers=HEADERS).answers
+    out = {}
+    for k, v in a.items():
+        if v.type == "noul":
+            out[k] = v.noul
+        elif v.type == "choice":
+            out[k] = {"choice": v.choice, "confidence": v.confidence, "probabilities": dict(v.probabilities or {})}
+        else:
+            out[k] = {"box": {"top": v.box.top, "bottom": v.box.bottom, "left": v.box.left, "right": v.box.right},
+                      "confidence": v.confidence}
+    return out
+
+
 def ask(client, mode, text, image):
+    if mode == "raw":
+        return raw(client, json.loads(text), image)
     state = {"screen": Image(Path(image))}
     if mode == "see":
         questions = {"yes": Noul(instructions=f"{text} Look at `screen`.")}

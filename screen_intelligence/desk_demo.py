@@ -48,8 +48,8 @@ def page(targets, seed):
         f'<button id="{i}" class="{size}" aria-label="{text}" style="left:calc({c * 25 + 3 + rng.random() * 12}vw);'
         f'top:calc({r * 30 + 12 + rng.random() * 14}vh)">{text}</button>' for (i, text, _, size), (c, r) in zip(targets, cells))
     # a click also flashes the button, the way real buttons react, so desk's click sees the screen change at once
-    js = ("let n=0;document.addEventListener('click',e=>{n++;const b=e.target.tagName==='BUTTON';document.title=(b?'hit '+e.target.id:'miss')"
-          "+' #'+n;if(b){e.target.style.outline='5px solid #111';setTimeout(()=>e.target.style.outline='',400)}});")
+    js = ("let n=0,log=[];document.addEventListener('click',e=>{n++;const b=e.target.tagName==='BUTTON';log.push(b?e.target.id:'miss');"
+          "document.title=(b?'hit '+e.target.id:'miss')+' #'+n+' · '+log.join(',');if(b){e.target.style.outline='5px solid #111';setTimeout(()=>e.target.style.outline='',400)}});")
     PAGE.write_text(f"<!doctype html><meta charset=utf-8><title>Desk demo</title><style>{CSS}</style><h1>desk demo · seed {seed}</h1>{buttons}<script>{js}</script>")
 
 
@@ -57,6 +57,15 @@ def title():
     from .ax import elements
 
     return elements("Safari")[1] or ""
+
+
+def open_page(seed=None):
+    """Write a fresh demo page and open it; returns the seed. Also for trying `desk do` on it."""
+    seed = random.randrange(1000) if seed is None else seed
+    RUNTIME.mkdir(exist_ok=True)
+    page(TARGETS, seed)
+    subprocess.run(["open", "-a", "Safari", f"file://{PAGE}?{seed}"])  # the ?seed makes Safari load it fresh
+    return seed
 
 
 def run(args):
@@ -68,7 +77,7 @@ def run(args):
     targets = random.Random(seed).sample(TARGETS, n)
     RUNTIME.mkdir(exist_ok=True)
     page(targets, seed)
-    subprocess.run(["open", "-a", "Safari", str(PAGE)])
+    subprocess.run(["open", "-a", "Safari", f"file://{PAGE}?{seed}"])
     desk.until([f"seed {seed}", "Safari", "--timeout", "10"])  # this run's page, not an older demo tab
     time.sleep(0.8)  # let the page paint before the first look
     rows, last = [], ""
