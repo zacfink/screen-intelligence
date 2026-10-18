@@ -50,7 +50,12 @@ def page(targets, seed):
     # a click also flashes the button, the way real buttons react, so desk's click sees the screen change at once
     js = ("let n=0,log=[];document.addEventListener('click',e=>{n++;const b=e.target.tagName==='BUTTON';log.push(b?e.target.id:'miss');"
           "document.title=(b?'hit '+e.target.id:'miss')+' #'+n+' · '+log.join(',');if(b){e.target.style.outline='5px solid #111';setTimeout(()=>e.target.style.outline='',400)}});")
-    PAGE.write_text(f"<!doctype html><meta charset=utf-8><title>Desk demo</title><style>{CSS}</style><h1>desk demo · seed {seed}</h1>{buttons}<script>{js}</script>")
+    # a search box for typing tests: pressing return logs what's in it
+    field = ('<input id="q" placeholder="Search" aria-label="Search" style="position:fixed;right:24px;top:12px;'
+             'width:220px;padding:8px 12px;border:1px solid #bbb;border-radius:8px;font-size:15px">')
+    js += ("document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter'){log.push('typed:'+e.target.value);"
+           "document.title='typed #'+n+' · '+log.join(',')}});")
+    PAGE.write_text(f"<!doctype html><meta charset=utf-8><title>Desk demo</title><style>{CSS}</style><h1>desk demo · seed {seed}</h1>{field}{buttons}<script>{js}</script>")
 
 
 def title():

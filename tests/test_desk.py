@@ -24,6 +24,7 @@ class Run(unittest.TestCase):
         for target in (patch.object(desk, "pyautogui"), patch.object(desk.time, "sleep"), patch.object(desk, "subprocess")):
             self.addCleanup(target.stop)
             setattr(self, target.attribute, target.start())
+        self.pyautogui.position.return_value = (0, 0)  # glide reads where the mouse starts
 
     def test_batch_splits_on_semicolons_but_not_inside_quotes_or_on_element_numbers(self):
         self.assertEqual(self.desk.steps('click #78; type "a; b"; key tab'), [["click", "#78"], ["type", "a; b"], ["key", "tab"]])
@@ -147,3 +148,10 @@ class Do(unittest.TestCase):
 
         self.assertEqual(pick({"choice": "stuck", "probabilities": {"stuck": .4, "click_point": .35}}), "click_point")
         self.assertEqual(pick({"choice": "stuck", "probabilities": {"stuck": .7, "click_point": .2}}), "stuck")
+
+    def test_quoted_text_is_typeable_and_never_split(self):
+        from screen_intelligence.desk_do import plan, quoted
+
+        self.assertEqual(plan('Click search, then type "rain; then sun" then press return'),
+                         ["Click search", 'type "rain; then sun"', "press return"])
+        self.assertEqual(quoted('type "weather in Kingston" but don\'t'), ["weather in Kingston"])

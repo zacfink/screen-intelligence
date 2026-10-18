@@ -131,9 +131,17 @@ def changed(before, after):
     return diff.histogram()[255] >= CHANGED_PIXELS
 
 
+def glide(x, y):
+    """Move the mouse like a hand would: ease in and out, longer for longer trips (0.12-0.4s). The target is fixed
+    before it starts, so this is only how it looks."""
+    cx, cy = pyautogui.position()
+    distance = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+    pyautogui.moveTo(x, y, duration=min(0.4, 0.12 + distance / 4000), tween=pyautogui.easeInOutQuad)
+
+
 def click(x, y, kind):
     """Click, then report whether the screen changed. The mouse moves first so hover effects don't count."""
-    pyautogui.moveTo(x, y)
+    glide(x, y)
     time.sleep(0.05)
     bounds = window_at(x, y)
     before = frame(bounds)
@@ -413,7 +421,7 @@ def do(command, args):
             if not click(x, y, rest[0] if rest else "left"):
                 return "click changed nothing on screen"
         case "move":
-            pyautogui.moveTo(*point(args)[0])
+            glide(*point(args)[0])
         case "drag":
             (x1, y1), rest = point(args)
             (x2, y2), _ = point(rest)
