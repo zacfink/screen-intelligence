@@ -30,6 +30,8 @@
   Jev drives:
     desk do "goal" [--app Safari] [--type "text"]... [--steps 15]   Jev picks each move from the screen, the goal and
                               what's been done; stops when done, stuck, repeating, or before anything risky
+  Jev writes:
+    desk jevtype "question" [--max 80] [--dry]   Jev picks every character of an answer and it's typed as it goes
   Demo:
     desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
   Check:
@@ -434,6 +436,10 @@ def do(command, args):
             from . import desk_do
 
             return desk_do.run(args)
+        case "jevtype":
+            from . import jev_type
+
+            jev_type.run(args)
         case "demo":
             from . import desk_demo
 

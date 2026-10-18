@@ -37,8 +37,8 @@ def raw(client, spec, image):
     kinds = {"noul": lambda q: Noul(instructions=q["instructions"]), "box": lambda q: Box(instructions=q["instructions"]),
              "choice": lambda q: Choice(instructions=q["instructions"], criteria=q["criteria"])}
     questions = {k: kinds[q["type"]](q) for k, q in spec["questions"].items()}
-    a = client.system_one(model=MODEL, state={**spec["state"], "screen": Image(Path(image))}, questions=questions,
-                          extra_headers=HEADERS).answers
+    state = {**spec["state"], "screen": Image(Path(image))} if image else spec["state"]  # no image: text only
+    a = client.system_one(model=MODEL, state=state, questions=questions, extra_headers=HEADERS).answers
     out = {}
     for k, v in a.items():
         if v.type == "noul":
