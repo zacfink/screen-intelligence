@@ -183,6 +183,17 @@ def safari_url():
     return out.stdout.strip()
 
 
+def on_page(prefix):
+    """Is Safari's front tab still `prefix`? While a dropdown menu is open Safari doesn't answer (blank URL), which
+    isn't a different page, so a blank is retried for up to a second; only a real different URL counts as no."""
+    for _ in range(10):
+        url = safari_url()
+        if url:
+            return url.startswith(prefix)
+        time.sleep(0.1)
+    return True
+
+
 def log_step(step, move, did, elements, title, a=None):
     """Every Jev-decided move, for later: enough runs of (step, screen elements, move, result, Jev's confidences)
     can tune thresholds, give Jev examples, or teach a picker. Stays local (runtime/ is gitignored)."""
@@ -287,7 +298,7 @@ def _run(args):
     for s_i, step in enumerate(plan(task), 1):
         tries = []
         t0 = time.time()
-        if only_url and not safari_url().startswith(only_url):
+        if only_url and not on_page(only_url):
             return f"Stopped before step {s_i} ({step}): the front tab isn't {only_url} any more"
         try:
             did = ax.front_app().localizedName() == app_name and direct(step, allow_risky)
@@ -301,7 +312,7 @@ def _run(args):
         while True:
             if moves >= budget:
                 return f"Ran out of moves ({budget}) on step {s_i}: {step}"
-            if only_url and not safari_url().startswith(only_url):
+            if only_url and not on_page(only_url):
                 return f"Stopped before step {s_i} ({step}): the front tab isn't {only_url} any more"
             now = pyautogui.position()
             if left_at and abs(now[0] - left_at[0]) + abs(now[1] - left_at[1]) > 3:
