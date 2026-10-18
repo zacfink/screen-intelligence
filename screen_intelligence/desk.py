@@ -7,6 +7,7 @@
     desk see "Is there an error dialog?"   Jev answers yes/no about the screen (probability); no screenshot to read
     desk find "the blue Submit button"     Jev finds it on screen (two passes: whole screen, then a close-up crop),
                               prints its centre in screenshot pixels; then `click @` clicks it. For apps `ui` can't read.
+    desk highlight "the Wi-Fi icon"        find it, then open the screenshot in Preview with a red box around it
   Act:
     desk click #N             click element N from the last `ui`
     desk click @              click what the last `find` found
@@ -280,12 +281,14 @@ def find_box(full, text):
     return (l, t, r, bt), a
 
 
-def find(text):
+def find(text, show=False):
     jev_start()
     screen_w, _ = pyautogui.size()
     full = pyautogui.screenshot()
     k = full.width / screen_w  # native pixels per screen point (2 on Retina)
     (l, t, r, b), a = find_box(full, text)
+    if show:
+        highlight(full, (l, t, r, b), f"{text} · {a['confidence']:.2f}")
     x, y = (l + r) / 2 / k, (t + b) / 2 / k  # screen points
     scale = screen_w / WIDTH
     SCALE.write_text(json.dumps(scale))  # so `click X Y` with the printed pixels lands here too
@@ -296,6 +299,21 @@ def find(text):
         return f"Jev doesn't think {text!r} is on screen (visible {a['visible']:.2f}); the box is a guess"
     if a["confidence"] < MIN_CONFIDENCE:
         return f"Jev isn't sure (confidence {a['confidence']:.2f}); check with `desk shot` before clicking"
+
+
+def highlight(full, box, caption):
+    """Save the screenshot with a red box around `box` (native pixels) and open it in Preview."""
+    from PIL import ImageDraw
+
+    image = full.convert("RGB")
+    draw, pad, w = ImageDraw.Draw(image), 8, max(4, image.width // 600)
+    l, t, r, b = box
+    draw.rectangle((l - pad, t - pad, r + pad, b + pad), outline=(255, 40, 40), width=w)
+    draw.text((l - pad, max(0, t - pad - 30)), caption, fill=(255, 40, 40), font_size=max(16, image.width // 90))
+    out = RUNTIME / "desk-highlight.png"
+    image.resize((image.width // 2, image.height // 2)).save(out)
+    subprocess.run(["open", "-a", "Preview", str(out)])
+    print(out)
 
 
 def see(text):
@@ -375,6 +393,8 @@ def do(command, args):
             shot()
         case "find":
             return find(" ".join(args))
+        case "highlight":
+            return find(" ".join(args), show=True)
         case "see":
             see(" ".join(args))
         case "demo":
