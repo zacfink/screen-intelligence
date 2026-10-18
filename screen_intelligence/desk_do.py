@@ -178,19 +178,23 @@ RUN = None  # set by desk train so its scoring can find this run's moves
 
 
 def safari_url():
-    out = subprocess.run(["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
-                         capture_output=True, text=True)
+    """Safari's front tab URL, or "" if Safari doesn't answer within a second (it doesn't while a menu is open; the
+    default Apple Event wait is two minutes, which stalled desk train for ~90s per dropdown)."""
+    try:
+        out = subprocess.run(["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
+                             capture_output=True, text=True, timeout=1)
+    except subprocess.TimeoutExpired:
+        return ""
     return out.stdout.strip()
 
 
 def on_page(prefix):
     """Is Safari's front tab still `prefix`? While a dropdown menu is open Safari doesn't answer (blank URL), which
     isn't a different page, so a blank is retried for up to a second; only a real different URL counts as no."""
-    for _ in range(10):
+    for _ in range(3):
         url = safari_url()
         if url:
             return url.startswith(prefix)
-        time.sleep(0.1)
     return True
 
 
