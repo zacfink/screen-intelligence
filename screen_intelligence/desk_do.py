@@ -84,6 +84,34 @@ def quoted(step):
     return [m[0] or m[1] for m in re.findall(r'"([^"]+)"|“([^”]+)”', step)]
 
 
+def direct(step, allow_risky=True):
+    """Steps that need no judgment run without asking Jev: type "text" and press <key>. Returns what was done, or None."""
+    m = re.fullmatch(r'type\s+(?:"([^"]*)"|“([^”]*)”)', step.strip(), re.I)
+    if m:
+        desk.natural_type(m.group(1) if m.group(1) is not None else m.group(2))
+        return f"typed {m.group(1) or m.group(2)!r}"
+    m = re.fullmatch(r"(?:press|hit)\s+(?:the\s+)?([\w+]+)(?:\s+key)?", step.strip(), re.I)
+    if m:
+        key = desk.KEYS.get(m.group(1).lower(), m.group(1).lower())
+        if key in ("return", "enter") and not allow_risky:
+            return None  # return can submit a form: let Jev's risk check see it first
+        if all(k in pyautogui.KEYBOARD_KEYS or k == "cmd" for k in key.split("+")):
+            desk.do("key", [key])
+            return f"pressed {key}"
+    return None
+
+
+def look(app_name, screen_w):
+    """Screenshot and the window's labelled elements, read at the same time (~0.2s instead of ~0.4s one after the other)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(2) as pool:
+        shot, tree = pool.submit(pyautogui.screenshot), pool.submit(ax.elements, app_name)
+        full = shot.result()
+        full.resize((desk.MAX_SIDE, round(full.height * desk.MAX_SIDE / full.width))).save(RUNTIME / "do.png")
+        return full, tree.result()
+
+
 def pick(answer):
     """Jev's chosen move, but not a timid `stuck`: when it's under 60% sure, take the best real move instead."""
     probs = answer["probabilities"]
@@ -101,17 +129,26 @@ def run(args):
     desk.do("open", [app_name])
     desk.jev_start()
     screen_w, screen_h = pyautogui.size()
-    history, moves = [], 0
+    history, moves, left_at = [], 0, None
     for s_i, step in enumerate(plan(task), 1):
         tries = []
+        t0 = time.time()
+        if ax.front_app().localizedName() == app_name and (did := direct(step, allow_risky)):
+            moves += 1
+            history.append(f"step {s_i} ({step}): {did}")
+            print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s (no look needed)")
+            continue
         while True:
             if moves >= budget:
                 return f"Ran out of moves ({budget}) on step {s_i}: {step}"
+            now = pyautogui.position()
+            if left_at and abs(now[0] - left_at[0]) + abs(now[1] - left_at[1]) > 3:
+                return f"Stopped before step {s_i} ({step}): you moved the mouse, so it's yours"
+            if ax.front_app().localizedName() != app_name:
+                return f"Stopped before step {s_i} ({step}): {app_name} isn't in front any more (you switched apps?), so keys would go astray"
             t0, clicked, changed = time.time(), "", False
-            full = pyautogui.screenshot()
+            full, (_, title, found) = look(app_name, screen_w)
             k = full.width / screen_w
-            full.resize((desk.MAX_SIDE, round(full.height * desk.MAX_SIDE / full.width))).save(RUNTIME / "do.png")
-            _, title, found = ax.elements(app_name)
             on_screen = [(i, e) for i, e in enumerate(found) if e["role"] in desk.CLICKABLE and e["text"]
                          and 0 <= e["x"] < screen_w and 0 <= e["y"] < screen_h][:MAX_ELEMENTS]
             elements = {f"#{i + 1}": f"{e['role']} {e['text']} ({where(e['x'], e['y'], screen_w, screen_h)})" for i, e in on_screen}
@@ -148,7 +185,7 @@ def run(args):
                 desk.do("key", [desk.KEYS[move[4:]]])
                 did = f"pressed {desk.KEYS[move[4:]]} ({move[4:]})"
             else:  # type N
-                desk.paste(typeable[int(move[5:])])
+                desk.natural_type(typeable[int(move[5:])])
                 did = f"typed {typeable[int(move[5:])]!r}"
             moves += 1
             history.append(f"step {s_i} ({step}): {did}")
@@ -158,5 +195,7 @@ def run(args):
                 break  # a "click X" step whose click hit X by name or visibly did something: done (asking again clicked twice)
             if len(tries) >= 3 and len(set(tries[-3:])) == 1:
                 return f"Stopped: step {s_i} did the same thing three times ({did}), so it isn't working"
-            time.sleep(0.3)  # let the app react before the next look
+            left_at = tuple(pyautogui.position())
+            if not changed:
+                time.sleep(0.15)  # a click already waited for the screen to change; keys and typing get a moment
     print(f"done: {len(plan(task))} steps in {moves} moves")

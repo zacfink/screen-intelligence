@@ -155,3 +155,15 @@ class Do(unittest.TestCase):
         self.assertEqual(plan('Click search, then type "rain; then sun" then press return'),
                          ["Click search", 'type "rain; then sun"', "press return"])
         self.assertEqual(quoted('type "weather in Kingston" but don\'t'), ["weather in Kingston"])
+
+    def test_plain_type_and_press_steps_skip_jev(self):
+        from unittest.mock import patch
+
+        from screen_intelligence import desk, desk_do
+
+        with patch.object(desk, "natural_type") as typed, patch.object(desk, "do") as do:
+            self.assertEqual(desk_do.direct('type "hi there"'), "typed 'hi there'")
+            self.assertEqual(desk_do.direct("press return"), "pressed return")
+            self.assertIsNone(desk_do.direct("click the Save button"))
+        typed.assert_called_once_with("hi there")
+        do.assert_called_once_with("key", ["return"])

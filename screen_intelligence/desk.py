@@ -16,6 +16,7 @@
     desk move X Y | #N        put the cursor there without clicking (scroll goes to whatever is under it)
     desk type "text"          paste text at the cursor (keeps your clipboard)
     desk type --keys "text"   real keystrokes, for menus and anything that ignores paste
+    desk type --natural "text"   types like a person, one key at a time with human rhythm (~100 wpm)
     desk key cmd+l            a key or a combo (pyautogui key names joined by +)
     desk scroll up|down|left|right N
     desk open "App Name"      open or switch to an app
@@ -164,6 +165,27 @@ def paste(text):
     pyautogui.hotkey("command", "v")
     time.sleep(0.2)  # let the app read the clipboard before it's restored
     subprocess.run(["pbcopy"], input=old)
+
+
+def natural_type(text, wpm=None):
+    """Type like a person at a keyboard: one character at a time, ~90-120 wpm with uneven gaps and short pauses after
+    spaces and punctuation. Each character goes in as a Unicode key event, so capitals, ":" and emoji come out right
+    (pyautogui's per-key typing sometimes dropped Shift)."""
+    import random
+
+    import Quartz
+
+    gap = 60 / ((wpm or random.uniform(90, 120)) * 5)  # seconds per character at that speed (a word is 5 characters)
+    for ch in text:
+        for down in (True, False):
+            event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+            Quartz.CGEventKeyboardSetUnicodeString(event, len(ch.encode("utf-16-le")) // 2, ch)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+            time.sleep(random.uniform(0.008, 0.02) if down else 0)  # key held a moment
+        pause = gap * random.uniform(0.5, 1.5)
+        if ch in " ,.;:!?\n":
+            pause += random.uniform(0.02, 0.1)
+        time.sleep(pause)
 
 
 def split_batch(text):
@@ -430,7 +452,9 @@ def do(command, args):
             pyautogui.moveTo(x2, y2, duration=0.8)  # gradual, so apps see motion events, not a jump
             pyautogui.mouseUp()
         case "type":
-            if args and args[0] == "--keys":
+            if args and args[0] == "--natural":
+                natural_type(" ".join(args[1:]))
+            elif args and args[0] == "--keys":
                 pyautogui.write(" ".join(args[1:]), interval=0.03)
             else:
                 paste(" ".join(args))
