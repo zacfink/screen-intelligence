@@ -3,6 +3,8 @@ desk calls it as a subprocess and gets one JSON line back.
 
   jev_look.py box "the Submit button" IMAGE    -> {"box": {top, bottom, left, right}, "confidence", "visible"}
   jev_look.py see "Is there an error?" IMAGE   -> {"yes": probability}
+  jev_look.py serve                            -> one JSON line in ([mode, text, image]), one out, until stdin closes:
+                                                  one Python start and one open connection for a whole desk run
 
 Images and Box are TypeSafe beta features: they need the danger-zone header and Jev 1.14 by name.
 """
@@ -28,15 +30,14 @@ def api_key():
     return m.group(1)
 
 
-def ask(mode, text, image):
+def ask(client, mode, text, image):
     state = {"screen": Image(Path(image))}
     if mode == "see":
         questions = {"yes": Noul(instructions=f"{text} Look at `screen`.")}
     else:  # a Box always returns a box, even for something absent, so a Noul says whether to trust it
         questions = {"box": Box(instructions=f"{text} in `screen`"),
                      "visible": Noul(instructions=f"Is {text} visible in `screen`?")}
-    with TypeSafeClient(api_key=api_key()) as client:
-        a = client.system_one(model=MODEL, state=state, questions=questions, extra_headers=HEADERS).answers
+    a = client.system_one(model=MODEL, state=state, questions=questions, extra_headers=HEADERS).answers
     if mode == "see":
         return {"yes": a["yes"].noul}
     b = a["box"].box
@@ -45,4 +46,12 @@ def ask(mode, text, image):
 
 
 if __name__ == "__main__":
-    print(json.dumps(ask(*sys.argv[1:4])))
+    with TypeSafeClient(api_key=api_key()) as client:
+        if sys.argv[1] != "serve":
+            print(json.dumps(ask(client, *sys.argv[1:4])))
+        for line in sys.stdin if sys.argv[1] == "serve" else []:
+            try:
+                out = ask(client, *json.loads(line))
+            except Exception as e:  # report and keep serving; desk turns it into a message
+                out = {"error": f"{type(e).__name__}: {e}"}
+            print(json.dumps(out), flush=True)

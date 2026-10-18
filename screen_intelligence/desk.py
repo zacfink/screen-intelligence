@@ -25,6 +25,8 @@
   Map:
     desk map [App]            the moves available right now, as JSON: the fixed keyboard map plus a mouse map of
                               this screen's clickable elements (same #N numbers as `ui`, so `click #N` works after it)
+  Demo:
+    desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
   Check:
     desk expect TEXT[|TEXT2] [App] [--timeout S]   stop unless a label containing TEXT shows up within S (3)
   Batch:
@@ -53,6 +55,7 @@ FOUND = RUNTIME / "desk-found.json"  # centre (screen points) of what the last `
 JEV_PYTHON = Path.home() / ".venvs/typesafe/bin/python"  # the TypeSafe SDK lives there, not in this Python
 JEV_LOOK = Path(__file__).with_name("jev_look.py")
 CLOSE_UP = 560  # native pixels on each side of the second-pass crop: Jev answers in 0.01 steps, ~6px here vs ~13 on the whole screen
+MIN_CONFIDENCE = 0.6  # demo 2026-10-17: 35/36 hits, all >= 0.71; the one miss was 0.51
 MAX_SIDE = 1568  # Jev rejects images over 1568px (or under 280) on a side
 # The keyboard map: a small, fixed set of shortcuts that work across most Mac apps. Nothing destructive (no quit,
 # delete or send) — those stay with Claude.
@@ -127,7 +130,7 @@ def changed(before, after):
 def click(x, y, kind):
     """Click, then report whether the screen changed. The mouse moves first so hover effects don't count."""
     pyautogui.moveTo(x, y)
-    time.sleep(0.15)
+    time.sleep(0.05)
     bounds = window_at(x, y)
     before = frame(bounds)
     if kind == "double":
@@ -136,7 +139,7 @@ def click(x, y, kind):
         pyautogui.click(x, y, button=kind)
     deadline = time.time() + CHANGE_WAIT
     while time.time() < deadline:
-        time.sleep(0.15)
+        time.sleep(0.03)
         if changed(before, frame(bounds)):
             return True
     return False
@@ -210,12 +213,30 @@ def shot():
     print(SHOT)
 
 
+_jev_worker = None
+
+
+def jev_start():
+    """Start the worker if it isn't running. find/see call this before the screenshot so the two overlap."""
+    global _jev_worker
+    if _jev_worker is None or _jev_worker.poll() is not None:
+        _jev_worker = subprocess.Popen([str(JEV_PYTHON), "-I", str(JEV_LOOK), "serve"], stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
 def jev(mode, text, image):
-    """One Jev question about an image, via the TypeSafe venv. Returns its JSON answer."""
-    out = subprocess.run([str(JEV_PYTHON), "-I", str(JEV_LOOK), mode, text, str(image)], capture_output=True, text=True)
-    if out.returncode:
-        sys.exit(f"Jev failed: {(out.stderr or out.stdout).strip().splitlines()[-1]}")
-    return json.loads(out.stdout)
+    """One Jev question about an image, via a worker in the TypeSafe venv that stays up for this desk process, so
+    starting Python and opening the connection (~0.35s) is paid once, not per question. Returns its JSON answer."""
+    jev_start()
+    _jev_worker.stdin.write(json.dumps([mode, text, str(image)]) + "\n")
+    _jev_worker.stdin.flush()
+    line = _jev_worker.stdout.readline()
+    if not line:
+        sys.exit(f"Jev failed: {(_jev_worker.stderr.read().strip().splitlines() or ['worker exited'])[-1]}")
+    out = json.loads(line)
+    if "error" in out:
+        sys.exit(f"Jev failed: {out['error']}")
+    return out
 
 
 def fit(image):
@@ -224,32 +245,43 @@ def fit(image):
     return image if k == 1 else image.resize((round(image.width * k), round(image.height * k)))
 
 
+def zoom(full, box, side, text, n):
+    """Ask again on a crop of at least side x side native pixels around box (shifted, not shrunk, at screen edges).
+    Returns the finer box and Jev's answer, or None when the crop no longer shows the target."""
+    W, H = full.size
+    l, t, r, b = box
+    w, h = min(W, max((r - l) * 1.6, side)), min(H, max((b - t) * 1.6, side))
+    x0 = round(min(max(0, (l + r) / 2 - w / 2), W - w))
+    y0 = round(min(max(0, (t + b) / 2 - h / 2), H - h))
+    x1, y1 = round(x0 + w), round(y0 + h)
+    fit(full.crop((x0, y0, x1, y1))).save(RUNTIME / f"jev-{n}.png")
+    a = jev("box", text, RUNTIME / f"jev-{n}.png")
+    if a["visible"] < 0.5:
+        return None
+    e = a["box"]
+    return (x0 + e["left"] * (x1 - x0), y0 + e["top"] * (y1 - y0), x0 + e["right"] * (x1 - x0), y0 + e["bottom"] * (y1 - y0)), a
+
+
 def find_box(full, text):
     """Where `text` is in a full-resolution screenshot, as a native-pixel box, plus Jev's answer. Pass 1 looks at the
-    whole screen at 1280 wide; pass 2 asks again on a close-up crop around that box, which is about twice as exact."""
+    whole screen at Jev's largest size (1568 wide); pass 2 asks again on a close-up around that box, about twice as
+    exact. A tighter pass 3 was tried for icons and didn't help: icon misses are mix-ups in pass 1 (the gear for the
+    star), which zooming can't fix, and they come with low confidence."""
     RUNTIME.mkdir(exist_ok=True)
     W, H = full.size
-    first = full.resize((WIDTH, round(H * WIDTH / W)))
-    first.save(RUNTIME / "jev-1.png")
+    full.resize((MAX_SIDE, round(H * MAX_SIDE / W))).save(RUNTIME / "jev-1.png")
     a = jev("box", text, RUNTIME / "jev-1.png")
     b = a["box"]
-    l, t, r, bt = b["left"] * W, b["top"] * H, b["right"] * W, b["bottom"] * H
-    cx, cy = (l + r) / 2, (t + bt) / 2
-    half_w, half_h = max((r - l) * 0.8, CLOSE_UP / 2), max((bt - t) * 0.8, CLOSE_UP / 2)
-    x0, y0 = max(0, round(cx - half_w)), max(0, round(cy - half_h))
-    x1, y1 = min(W, round(cx + half_w)), min(H, round(cy + half_h))
-    crop = full.crop((x0, y0, x1, y1))
-    if min(crop.size) >= 280:  # at a screen edge the crop can get too thin; keep pass 1 then
-        fit(crop).save(RUNTIME / "jev-2.png")
-        a2 = jev("box", text, RUNTIME / "jev-2.png")
-        if a2["visible"] >= 0.5:  # the close-up still shows it, so trust its finer box
-            b2, cw, ch = a2["box"], x1 - x0, y1 - y0
-            l, t, r, bt = x0 + b2["left"] * cw, y0 + b2["top"] * ch, x0 + b2["right"] * cw, y0 + b2["bottom"] * ch
-            a = {**a2, "visible": max(a["visible"], a2["visible"])}
+    box = (b["left"] * W, b["top"] * H, b["right"] * W, b["bottom"] * H)
+    better = zoom(full, box, CLOSE_UP, text, 2)
+    if better:  # the close-up still shows it, so trust its finer box
+        box, a = better[0], {**better[1], "visible": max(a["visible"], better[1]["visible"])}
+    l, t, r, bt = box
     return (l, t, r, bt), a
 
 
 def find(text):
+    jev_start()
     screen_w, _ = pyautogui.size()
     full = pyautogui.screenshot()
     k = full.width / screen_w  # native pixels per screen point (2 on Retina)
@@ -258,12 +290,16 @@ def find(text):
     scale = screen_w / WIDTH
     SCALE.write_text(json.dumps(scale))  # so `click X Y` with the printed pixels lands here too
     FOUND.write_text(json.dumps([round(x), round(y)]))
+    (RUNTIME / "desk-found-conf.json").write_text(json.dumps(a["confidence"]))
     print(f"found at {round(x / scale)} {round(y / scale)} (screenshot px) · confidence {a['confidence']:.2f} · visible {a['visible']:.2f}")
     if a["visible"] < 0.5:
         return f"Jev doesn't think {text!r} is on screen (visible {a['visible']:.2f}); the box is a guess"
+    if a["confidence"] < MIN_CONFIDENCE:
+        return f"Jev isn't sure (confidence {a['confidence']:.2f}); check with `desk shot` before clicking"
 
 
 def see(text):
+    jev_start()
     RUNTIME.mkdir(exist_ok=True)
     image = pyautogui.screenshot()
     image.resize((WIDTH, round(image.height * WIDTH / image.width))).save(RUNTIME / "jev-1.png")
@@ -341,6 +377,10 @@ def do(command, args):
             return find(" ".join(args))
         case "see":
             see(" ".join(args))
+        case "demo":
+            from . import desk_demo
+
+            desk_demo.run(args)
         case "click":
             (x, y), rest = point(args)
             if not click(x, y, rest[0] if rest else "left"):
