@@ -76,7 +76,10 @@ def open_page(seed=None):
     seed = random.randrange(1000) if seed is None else seed
     RUNTIME.mkdir(exist_ok=True)
     page(TARGETS, seed)
-    subprocess.run(["open", "-a", "Safari", f"file://{PAGE}?{seed}"])  # the ?seed makes Safari load it fresh
+    # its own new window, so practice clicks can't land on a real tab behind it; the ?seed loads it fresh
+    url = f"file://{PAGE}?{seed}"
+    subprocess.run(["osascript", "-e", f'tell application "Safari" to make new document with properties {{URL:"{url}"}}',
+                    "-e", 'tell application "Safari" to activate'])
     return seed
 
 

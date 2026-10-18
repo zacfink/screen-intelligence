@@ -174,12 +174,25 @@ def direct(step, allow_risky=True):
     return None
 
 
-def log_step(step, move, did, elements, title):
-    """Every Jev-decided move, for later: enough runs of (step, screen elements, move, result) can teach a picker
-    or become replayable recipes. Stays local (runtime/ is gitignored)."""
+RUN = None  # set by desk train so its scoring can find this run's moves
+
+
+def safari_url():
+    out = subprocess.run(["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
+                         capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+def log_step(step, move, did, elements, title, a=None):
+    """Every Jev-decided move, for later: enough runs of (step, screen elements, move, result, Jev's confidences)
+    can tune thresholds, give Jev examples, or teach a picker. Stays local (runtime/ is gitignored)."""
+    a = a or {}
+    row = {"when": time.strftime("%Y-%m-%d %H:%M:%S"), "run": RUN, "window": title, "step": step, "move": move,
+           "did": did, "elements": len(elements), "action_conf": a.get("action", {}).get("confidence"),
+           "element_conf": a.get("element", {}).get("confidence"), "point_conf": a.get("point", {}).get("confidence"),
+           "risky": a.get("risky"), "done": a.get("done")}
     with (RUNTIME / "do-log.jsonl").open("a") as f:
-        f.write(json.dumps({"when": time.strftime("%Y-%m-%d %H:%M:%S"), "window": title, "step": step, "move": move,
-                            "did": did, "elements": len(elements)}, ensure_ascii=False) + "\n")
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 class StepFailed(Exception):
@@ -264,6 +277,9 @@ def _run(args):
     texts = flags(args, "--type")
     budget = int((flags(args, "--steps") or [15])[0])
     allow_risky = "--allow-risky" in args  # lets planned return/submit keys through; risky clicks still stop
+    # --only-url PREFIX: every step first checks Safari's front tab is still that page. desk train uses it so practice
+    # can't touch a real site (2026-10-17 it clicked "Cancel Application" on MyCareer when the demo didn't load)
+    only_url = (flags(args, "--only-url") or [None])[0]
     desk.do("open", [app_name])
     desk.jev_start()
     screen_w, screen_h = pyautogui.size()
@@ -271,6 +287,8 @@ def _run(args):
     for s_i, step in enumerate(plan(task), 1):
         tries = []
         t0 = time.time()
+        if only_url and not safari_url().startswith(only_url):
+            return f"Stopped before step {s_i} ({step}): the front tab isn't {only_url} any more"
         try:
             did = ax.front_app().localizedName() == app_name and direct(step, allow_risky)
         except StepFailed as e:
@@ -283,6 +301,8 @@ def _run(args):
         while True:
             if moves >= budget:
                 return f"Ran out of moves ({budget}) on step {s_i}: {step}"
+            if only_url and not safari_url().startswith(only_url):
+                return f"Stopped before step {s_i} ({step}): the front tab isn't {only_url} any more"
             now = pyautogui.position()
             if left_at and abs(now[0] - left_at[0]) + abs(now[1] - left_at[1]) > 3:
                 return f"Stopped before step {s_i} ({step}): you moved the mouse, so it's yours"
@@ -334,7 +354,7 @@ def _run(args):
             moves += 1
             history.append(f"step {s_i} ({step}): {did}")
             tries.append(did)
-            log_step(step, move, did, elements, title)
+            log_step(step, move, did, elements, title, a)
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s" + (f"  [{move}]" if "--why" in args else ""))
             if clicked and (clicked.lower() in step.lower() or (changed and step.lower().startswith("click"))):
                 break  # a "click X" step whose click hit X by name or visibly did something: done (asking again clicked twice)
