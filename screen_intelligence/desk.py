@@ -452,12 +452,17 @@ def do(command, args):
             pyautogui.moveTo(x2, y2, duration=0.8)  # gradual, so apps see motion events, not a jump
             pyautogui.mouseUp()
         case "type":
-            if args and args[0] == "--natural":
-                natural_type(" ".join(args[1:]))
-            elif args and args[0] == "--keys":
-                pyautogui.write(" ".join(args[1:]), interval=0.03)
+            text = " ".join(args)
+            mode = next((f for f in ("--natural", "--keys") if text.startswith(f + " ")), None)
+            if mode:  # a batch hands the rest over raw, quotes and all
+                text = text[len(mode) + 1:].strip()
+                text = text[1:-1] if len(text) > 1 and text[0] == text[-1] and text[0] in "'\"" else text
+            if mode == "--natural":
+                natural_type(text)
+            elif mode == "--keys":
+                pyautogui.write(text, interval=0.03)
             else:
-                paste(" ".join(args))
+                paste(text)
         case "key":
             pyautogui.hotkey(*[k.replace("cmd", "command") for k in args[0].lower().split("+")])
         case "scroll":
