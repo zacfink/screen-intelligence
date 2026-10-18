@@ -84,8 +84,74 @@ def quoted(step):
     return [m[0] or m[1] for m in re.findall(r'"([^"]+)"|“([^”]+)”', step)]
 
 
+def picker_open():
+    """Is a file picker up? Safari shows it as a sheet on its window (or, elsewhere, as a separate Open panel), so
+    look for an AXSheet / an "Open" dialog rather than for buttons a web page could also have."""
+    from ApplicationServices import AXUIElementCreateApplication
+
+    app = AXUIElementCreateApplication(ax.front_app().processIdentifier())
+    for window in ax.attr(app, "AXWindows") or []:
+        if ax.attr(window, "AXSubrole") == "AXDialog" and (ax.attr(window, "AXTitle") or "") in ("Open", "Choose File"):
+            return True
+        if any(ax.attr(c, "AXRole") == "AXSheet" for c in ax.attr(window, "AXChildren") or []):
+            return True
+    return False
+
+
+def attach(path):
+    """Attach a file: open the page's file picker if it isn't up (Jev finds the Choose File/Browse button), then
+    Go to Folder with the full path. Safari only opens a picker after a real click on the page, so the first try
+    can fail; it says so and Zac clicks once."""
+    from pathlib import Path
+
+    if not Path(path).expanduser().exists():
+        return None, f"no such file: {path}"
+    if not picker_open():
+        # Safari lists a file input as a button: "Choose File", or "no file selected" next to it
+        _, _, found = ax.elements(ax.front_app().localizedName())
+        button = next((e for e in found if e["role"] == "button"
+                       and re.search(r"choose file|browse|no file selected|upload a file", e["text"], re.I)), None)
+        if button:
+            desk.click(button["x"], button["y"], "left")
+        elif desk.find("the Choose File or Browse button for uploading a file"):
+            return None, "couldn't find the Choose File button"
+        else:
+            desk.click(*desk.point(["@"])[0], "left")
+        for _ in range(20):
+            if picker_open():
+                break
+            time.sleep(0.1)
+        else:
+            return None, "the file picker didn't open (Safari wants one real click on Choose File first)"
+    desk.do("key", ["cmd+shift+g"])
+    time.sleep(0.6)
+    desk.paste(str(Path(path).expanduser()))
+    time.sleep(0.3)
+    desk.do("key", ["return"])
+    time.sleep(0.8)
+    desk.do("key", ["return"])
+    for _ in range(20):
+        if not picker_open():
+            return f"attached {Path(path).name}", None
+        time.sleep(0.1)
+    return None, "the file picker is still open; the path may be wrong"
+
+
 def direct(step, allow_risky=True):
-    """Steps that need no judgment run without asking Jev: type "text" and press <key>. Returns what was done, or None."""
+    """Steps that need no judgment run without asking Jev: type "text", press <key>, choose "Option" (in an open
+    dropdown), attach "/path/file". Returns what was done, or None. A failed attach/choose raises StepFailed."""
+    m = re.fullmatch(r'attach\s+(?:the\s+file\s+)?"([^"]+)"', step.strip(), re.I)
+    if m:
+        did, problem = attach(m.group(1))
+        if problem:
+            raise StepFailed(problem)
+        return did
+    m = re.fullmatch(r'(?:choose|pick|select)\s+"([^"]+)"(?:\s+in\s+.*)?', step.strip(), re.I)
+    if m:  # an open native dropdown jumps to the item you type; return picks it
+        desk.do("type", ["--keys", m.group(1)])
+        time.sleep(0.2)
+        desk.do("key", ["return"])
+        return f"chose {m.group(1)!r}"
     m = re.fullmatch(r'type\s+(?:"([^"]*)"|“([^”]*)”)', step.strip(), re.I)
     if m:
         desk.natural_type(m.group(1) if m.group(1) is not None else m.group(2))
@@ -99,6 +165,34 @@ def direct(step, allow_risky=True):
             desk.do("key", [key])
             return f"pressed {key}"
     return None
+
+
+def log_step(step, move, did, elements, title):
+    """Every Jev-decided move, for later: enough runs of (step, screen elements, move, result) can teach a picker
+    or become replayable recipes. Stays local (runtime/ is gitignored)."""
+    with (RUNTIME / "do-log.jsonl").open("a") as f:
+        f.write(json.dumps({"when": time.strftime("%Y-%m-%d %H:%M:%S"), "window": title, "step": step, "move": move,
+                            "did": did, "elements": len(elements)}, ensure_ascii=False) + "\n")
+
+
+class StepFailed(Exception):
+    pass
+
+
+def report(app_name, screen_h):
+    """What's on screen now, as ~20 lines of text, so the next "now what" needs no screenshot: the window title,
+    headings, messages (errors, missing, submitted...), fields and the page's buttons and links."""
+    _, title, found = ax.elements(app_name)
+    page = [e for e in found if e["y"] > 90]  # below the browser's tab and tool bars
+    words = re.compile(r"error|required|missing|invalid|success|submitted|thank|attention|warning|failed|uploaded", re.I)
+    lines = [f"now: {title}"]
+    lines += [f"  # {e['text']}" for e in page if e["role"] == "heading"][:5]
+    lines += [f"  ! {e['text']}" for e in page if e["role"] == "text" and words.search(e["text"])][:6]
+    lines += [f"  [{e['role']}] {e['text']}" for e in page if e["role"] in ("field", "textarea", "popup", "combo", "checkbox", "radio")][:8]
+    actions = [e["text"] for e in page if e["role"] in ("button", "link") and e["text"]]
+    if actions:
+        lines.append("  buttons/links: " + " · ".join(dict.fromkeys(actions[-14:])))
+    print("\n".join(lines))
 
 
 def look(app_name, screen_w):
@@ -121,6 +215,15 @@ def pick(answer):
 
 
 def run(args):
+    """Run the plan, then always print what's on screen, so the caller's next move needs no screenshot."""
+    problem = _run(args)
+    if problem:
+        print(problem)
+    report((flags(args, "--app") or ["Safari"])[0], pyautogui.size()[1])
+    return "stopped" if problem else None
+
+
+def _run(args):
     task = next(a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or not args[i - 1].startswith("--")))
     app_name = (flags(args, "--app") or ["Safari"])[0]
     texts = flags(args, "--type")
@@ -133,7 +236,11 @@ def run(args):
     for s_i, step in enumerate(plan(task), 1):
         tries = []
         t0 = time.time()
-        if ax.front_app().localizedName() == app_name and (did := direct(step, allow_risky)):
+        try:
+            did = ax.front_app().localizedName() == app_name and direct(step, allow_risky)
+        except StepFailed as e:
+            return f"Step {s_i} ({step}) failed: {e}"
+        if did:
             moves += 1
             history.append(f"step {s_i} ({step}): {did}")
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s (no look needed)")
@@ -190,6 +297,7 @@ def run(args):
             moves += 1
             history.append(f"step {s_i} ({step}): {did}")
             tries.append(did)
+            log_step(step, move, did, elements, title)
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s" + (f"  [{move}]" if "--why" in args else ""))
             if clicked and (clicked.lower() in step.lower() or (changed and step.lower().startswith("click"))):
                 break  # a "click X" step whose click hit X by name or visibly did something: done (asking again clicked twice)

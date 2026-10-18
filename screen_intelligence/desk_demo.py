@@ -53,6 +53,13 @@ def page(targets, seed):
     # a search box for typing tests: pressing return logs what's in it
     field = ('<input id="q" placeholder="Search" aria-label="Search" style="position:fixed;right:24px;top:12px;'
              'width:220px;padding:8px 12px;border:1px solid #bbb;border-radius:8px;font-size:15px">')
+    # a dropdown and a file upload, like the forms on job portals: changes are logged too
+    field += ('<div style="position:fixed;right:24px;top:56px;display:flex;gap:8px;align-items:center;font-size:14px">'
+              '<label>Type <select id="kind" aria-label="Type"><option>-- Select --</option><option>Cover Letter</option>'
+              '<option>Resume</option><option>Transcript</option></select></label>'
+              '<input type="file" id="file" aria-label="Document"></div>')
+    js += ("['kind','file'].forEach(id=>document.getElementById(id).addEventListener('change',e=>{"
+           "log.push(id+':'+(id==='file'?e.target.files[0].name:e.target.value));document.title='changed · '+log.join(',')}));")
     js += ("document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter'){log.push('typed:'+e.target.value);"
            "document.title='typed #'+n+' · '+log.join(',')}});")
     PAGE.write_text(f"<!doctype html><meta charset=utf-8><title>Desk demo</title><style>{CSS}</style><h1>desk demo · seed {seed}</h1>{field}{buttons}<script>{js}</script>")
