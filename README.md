@@ -10,6 +10,11 @@ decision model, [Jev](https://typesafe.ai) by TypeSafe, does the looking and cli
 In use, it filled in a real internship application (posting search, three file uploads, document package) and
 stopped before Submit, which it leaves to a person.
 
+![20 overlapping Safari windows being dragged one by one into a 4 by 5 grid](docs/desk-grid.gif)
+
+*20 messy Safari windows tidied into a grid with `desk drag`, the real mouse doing every move (20x speed). A short
+script works out each window's cell; desk does the dragging.*
+
 ![desk do typing into a search box, picking from a dropdown and clicking four buttons on a test page](docs/desk-demo.gif)
 
 *`desk do` running a 9-step plan in real time: type a search, pick "Resume" from a dropdown, then click Save, the
