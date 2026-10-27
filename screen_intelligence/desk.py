@@ -498,9 +498,8 @@ def do(command, args):
             (x1, y1), rest = point(args)
             (x2, y2), _ = point(rest)
             pyautogui.moveTo(x1, y1)
-            pyautogui.mouseDown()
-            pyautogui.moveTo(x2, y2, duration=0.8)  # gradual, so apps see motion events, not a jump
-            pyautogui.mouseUp()
+            # dragTo, not mouseDown+moveTo: on macOS only dragTo sends drag events, so windows actually move
+            pyautogui.dragTo(x2, y2, duration=0.8, button="left")
         case "type":
             text = " ".join(args)
             mode = next((f for f in ("--natural", "--keys") if text.startswith(f + " ")), None)
