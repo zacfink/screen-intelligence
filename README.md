@@ -30,6 +30,7 @@ Measured with `desk demo` and `desk train` (a test page of 12 buttons, big to ti
 | Click a button chosen from the accessibility tree | 39 of 39 right |
 | One step of an agent run (`desk do`) | ~1.2 s per click, typing ~100 wpm |
 | Yes/no question about the screen (`desk see`) | ~1 s, ~10 tokens instead of a ~1,200-token screenshot |
+| The same `desk find` again within 20 s, screen unchanged | ~0.6 s instead of ~1.25 s (remembered, no Jev) |
 
 Misses come with low confidence (~0.1 vs ~0.8 for hits), so `find` refuses to click under 0.6.
 
@@ -52,6 +53,9 @@ Claude Code ── writes a plan ──▶ desk do "Click Upload, then choose "R
 - **Accessibility first.** `desk ui` reads an app's buttons, fields and labels as text (exact and free). Pixels
   (`desk find`, Jev's Box question) are the fallback for apps that draw their own UI, and when a label points
   somewhere other than where Jev sees the target, the pixels win.
+- **Short-term memory.** A confident find is kept for 20 seconds in `runtime/desk-memory.json`. Asking again
+  reuses it only if the same app is in front, the same window is under it, and that window looks the same (the
+  click change check). Any click, key, type, scroll or open forgets it; nothing outlives the 20 seconds.
 - **Two-pass find.** Jev boxes the target on the whole screen, then again on a close-up crop around that box,
   which is about twice as exact.
 - **Safety.** Every step checks for risky moves (send, submit, delete, pay) and stops before them. It stops if you
