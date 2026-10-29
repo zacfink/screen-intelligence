@@ -85,6 +85,9 @@ CLICKABLE = {"button", "link", "field", "textarea", "search", "checkbox", "radio
 UI_LINES = 80  # a dense page lists hundreds; past this a screenshot is cheaper
 CHANGE_WAIT = 1.5  # seconds a click gets to visibly change the screen
 CHANGED_PIXELS = 40  # pixels (640-wide grey frame) that must differ; a blinking text caret is ~15, an opened form thousands
+NEAR = 20  # points each side of the click: a small change here (a checkbox tick) counts even when the window check misses it
+NEAR_PIXELS = 30  # changed pixels near the click (2 per point); a tick mark is ~80
+NEAR_SIDE = 6  # ...spread at least this many pixels both ways, so a 1-point text caret doesn't count
 MEMORY = RUNTIME / "desk-memory.json"  # recent finds, so a repeat on an unchanged screen skips Jev
 MEMORY_TTL = 20  # seconds a find is trusted; past this, or after any act, it's forgotten
 LOOKS = {"ui", "map", "shot", "status", "find", "highlight", "see", "wait", "until", "expect", "recipe", "do", "run"}
@@ -145,6 +148,28 @@ def changed(before, after):
         return True
     diff = ImageChops.difference(before, after).point(lambda v: 255 if v > 24 else 0)
     return diff.histogram()[255] >= CHANGED_PIXELS
+
+
+def around(x, y, image):
+    """A grey close-up of the NEAR points around (x, y), at 2 pixels per point whatever the display's scale."""
+    k = image.width / pyautogui.size()[0]  # screenshot pixels per screen point
+    box = tuple(round(v * k) for v in (x - NEAR, y - NEAR, x + NEAR, y + NEAR))
+    return image.convert("L").crop(box).resize((4 * NEAR, 4 * NEAR))
+
+
+def near_changed(before, now, last):
+    """The close-up changed and has settled: the changed pixels make a mark at least NEAR_SIDE both ways (not a
+    caret), and `now` matches the previous poll `last` (a spinner never settles, so it never counts)."""
+    from PIL import ImageChops
+
+    def diff(a, b):
+        return ImageChops.difference(a, b).point(lambda v: 255 if v > 24 else 0)
+
+    if last is None or diff(last, now).histogram()[255] > 4:
+        return False
+    d = diff(before, now)
+    box = d.getbbox()
+    return d.histogram()[255] >= NEAR_PIXELS and box[2] - box[0] >= NEAR_SIDE and box[3] - box[1] >= NEAR_SIDE
 
 
 def front_pid():
@@ -231,20 +256,26 @@ def glide(x, y):
 
 
 def click(x, y, kind):
-    """Click, then report whether the screen changed. The mouse moves first so hover effects don't count."""
+    """Click, then report whether the screen changed: the whole window, or a small settled mark right at the click
+    (a checkbox tick). The mouse moves first so hover effects don't count."""
     glide(x, y)
     time.sleep(0.05)
     bounds = window_at(x, y)
-    before = frame(bounds)
+    shot = pyautogui.screenshot()
+    before, near = frame(bounds, shot), around(x, y, shot)
     if kind == "double":
         pyautogui.doubleClick(x, y)
     else:
         pyautogui.click(x, y, button=kind)
     deadline = time.time() + CHANGE_WAIT
+    last = None
     while time.time() < deadline:
         time.sleep(0.03)
-        if changed(before, frame(bounds)):
+        shot = pyautogui.screenshot()
+        now = around(x, y, shot)
+        if changed(before, frame(bounds, shot)) or near_changed(near, now, last):
             return True
+        last = now
     return False
 
 

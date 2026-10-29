@@ -47,7 +47,7 @@ class Run(unittest.TestCase):
 
         same = Image.new("L", (640, 400))
         with patch.object(self.desk, "frame", return_value=same), patch.object(self.desk, "load", return_value=1.0), \
-                patch.object(self.desk, "window_at", return_value=None):
+                patch.object(self.desk, "window_at", return_value=None), patch.object(self.desk, "around", return_value=same):
             with self.assertRaises(SystemExit) as stop:
                 self.desk.do("run", ["click 10 20; type never"])
         self.assertIn("step 1 of 2", str(stop.exception.code))
@@ -63,7 +63,7 @@ class Run(unittest.TestCase):
         after = before.copy()
         ImageDraw.Draw(after).rectangle((100, 100, 140, 120), fill=255)  # a form opened
         with patch.object(self.desk, "frame", side_effect=[before, after]), patch.object(self.desk, "load", return_value=1.0), \
-                patch.object(self.desk, "window_at", return_value=None):
+                patch.object(self.desk, "window_at", return_value=None), patch.object(self.desk, "around", return_value=before):
             self.desk.do("run", ["click 10 20; key tab"])
         self.pyautogui.hotkey.assert_called_once_with("tab")
 
@@ -87,6 +87,48 @@ class Run(unittest.TestCase):
         self.pyautogui.size.return_value = (640, 400)
         window = {"X": 300, "Y": 50, "Width": 300, "Height": 300}
         self.assertFalse(self.desk.changed(self.desk.frame(window), self.desk.frame(window)))
+
+    def click_with(self, draw):
+        """Click at (640, 400) on a 1280x800-point retina screen; draw(image, poll) paints each screenshot after it."""
+        from unittest.mock import patch
+
+        from PIL import Image, ImageDraw
+
+        shots = []
+
+        def screenshot():
+            image = Image.new("RGB", (2560, 1600), "white")
+            if shots:  # the first shot is the one from before the click
+                draw(ImageDraw.Draw(image), len(shots))
+            shots.append(image)
+            return image
+
+        self.pyautogui.screenshot.side_effect = screenshot
+        self.pyautogui.size.return_value = (1280, 800)
+        with patch.object(self.desk, "window_at", return_value=None), patch.object(self.desk, "CHANGE_WAIT", 0.2):
+            return self.desk.click(640, 400, "left")
+
+    def test_a_checkbox_tick_at_the_click_counts_though_the_window_barely_changes(self):
+        def tick(d, poll):  # a 14-point checkbox gets its check mark (screenshot pixels, 2 per point)
+            d.line((1270, 800, 1278, 810, 1292, 788), fill="black", width=4)
+
+        from PIL import Image, ImageDraw
+
+        plain, ticked = Image.new("RGB", (2560, 1600), "white"), Image.new("RGB", (2560, 1600), "white")
+        tick(ImageDraw.Draw(ticked), 1)
+        self.pyautogui.size.return_value = (1280, 800)
+        self.assertFalse(self.desk.changed(self.desk.frame(None, plain), self.desk.frame(None, ticked)))  # the old check missed it
+        self.assertTrue(self.click_with(tick))
+
+    def test_a_text_caret_appearing_at_the_click_is_not_a_change(self):
+        self.assertFalse(self.click_with(lambda d, poll: d.rectangle((1281, 784, 1282, 816), fill="black")))
+
+    def test_a_spinner_by_the_click_is_not_a_change(self):
+        def spin(d, poll):  # a small blob that moves round every poll and never settles
+            x, y = [(1290, 790), (1302, 790), (1302, 802), (1290, 802)][poll % 4]
+            d.rectangle((x, y, x + 10, y + 10), fill="black")
+
+        self.assertFalse(self.click_with(spin))
 
     def test_moving_the_mouse_yourself_stops_the_batch_after_the_current_step(self):
         # read before and after each step; you grab the mouse after step 2 finishes
