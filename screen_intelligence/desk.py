@@ -8,6 +8,8 @@
     desk find "the blue Submit button"     Jev finds it on screen (two passes: whole screen, then a close-up crop),
                               prints its centre in screenshot pixels; then `click @` clicks it. For apps `ui` can't read.
     desk highlight "the Wi-Fi icon"        find it, then open the screenshot in Preview with a red box around it
+                              A find is remembered for 20s (runtime/desk-memory.json): the same find again, with the
+                              same app in front and the target's window unchanged, skips Jev. Any act forgets it.
   Act:
     desk click #N             click element N from the last `ui`
     desk click @              click what the last `find` found
@@ -46,6 +48,8 @@
                               that never opened), the batch stops there and says which step. Move the mouse
                               yourself and the batch finishes the step it's on, then stops.
 """
+import base64
+import io
 import json
 import shlex
 from pathlib import Path
@@ -81,6 +85,9 @@ CLICKABLE = {"button", "link", "field", "textarea", "search", "checkbox", "radio
 UI_LINES = 80  # a dense page lists hundreds; past this a screenshot is cheaper
 CHANGE_WAIT = 1.5  # seconds a click gets to visibly change the screen
 CHANGED_PIXELS = 40  # pixels (640-wide grey frame) that must differ; a blinking text caret is ~15, an opened form thousands
+MEMORY = RUNTIME / "desk-memory.json"  # recent finds, so a repeat on an unchanged screen skips Jev
+MEMORY_TTL = 20  # seconds a find is trusted; past this, or after any act, it's forgotten
+LOOKS = {"ui", "map", "shot", "status", "find", "highlight", "see", "wait", "until", "expect", "recipe", "do", "run"}
 
 
 def to_screen(x, y, scale):
@@ -115,14 +122,14 @@ def window_at(x, y):
     for w in Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID):  # front to back
         b = w["kCGWindowBounds"]
         if w.get("kCGWindowLayer") == 0 and b["X"] <= x < b["X"] + b["Width"] and b["Y"] <= y < b["Y"] + b["Height"]:
-            return b
+            return {k: b[k] for k in ("X", "Y", "Width", "Height")} | {"id": w["kCGWindowNumber"]}
     return None
 
 
-def frame(bounds=None):
+def frame(bounds=None, image=None):
     """A small grey screenshot for change checks. Only the clicked window counts, so a busy terminal next to it
     doesn't look like a change; with no window, the whole screen minus the menu bar (clock, status icons)."""
-    image = pyautogui.screenshot().convert("L")
+    image = (image or pyautogui.screenshot()).convert("L")
     if bounds:
         k = image.width / pyautogui.size()[0]  # screenshot pixels per screen point
         image = image.crop(tuple(round(v * k) for v in (bounds["X"], bounds["Y"], bounds["X"] + bounds["Width"], bounds["Y"] + bounds["Height"])))
@@ -134,8 +141,56 @@ def frame(bounds=None):
 def changed(before, after):
     from PIL import ImageChops
 
+    if before.size != after.size:  # the window was resized
+        return True
     diff = ImageChops.difference(before, after).point(lambda v: 255 if v > 24 else 0)
     return diff.histogram()[255] >= CHANGED_PIXELS
+
+
+def front_pid():
+    from AppKit import NSWorkspace
+
+    return NSWorkspace.sharedWorkspace().frontmostApplication().processIdentifier()
+
+
+def forget():
+    MEMORY.unlink(missing_ok=True)
+
+
+def remember(text, point, box, answer, k, full):
+    """Keep this find for MEMORY_TTL seconds, with a grey frame of the window it's in (cut from the same
+    screenshot) so a repeat can check that window still looks the same. A handful at most, never past the TTL."""
+    window = window_at(*point)
+    png = io.BytesIO()
+    frame(window, full).save(png, "PNG")
+    entry = {"text": text, "at": time.time(), "pid": front_pid(), "window": window, "point": point, "box": box,
+             "answer": answer, "k": k, "frame": base64.b64encode(png.getvalue()).decode()}
+    try:
+        old = json.loads(MEMORY.read_text())
+    except (OSError, ValueError):
+        old = []
+    keep = [e for e in old if e["text"] != text and time.time() - e["at"] < MEMORY_TTL][-7:]
+    MEMORY.write_text(json.dumps(keep + [entry]))
+
+
+def recall(text):
+    """A find of `text` from the last MEMORY_TTL seconds, if it still holds: the same app is in front, the same
+    window (same id, same bounds) is under the point, and that window hasn't visibly changed (the click check:
+    a scroll, a new page or an opened menu count; a blinking caret or the busy terminal next to it don't)."""
+    from PIL import Image
+
+    try:
+        entries = json.loads(MEMORY.read_text())
+    except (OSError, ValueError):
+        return None
+    live = [e for e in entries if time.time() - e["at"] < MEMORY_TTL]
+    if not live:
+        forget()
+    e = next((e for e in live if e["text"] == text), None)
+    if not e or front_pid() != e["pid"] or window_at(*e["point"]) != e["window"]:
+        return None
+    saved = Image.open(io.BytesIO(base64.b64decode(e["frame"])))
+    return None if changed(saved, frame(e["window"])) else e
 
 
 STATUS = RUNTIME / "status.json"  # read by the Claude Status menu bar app (menubar/)
@@ -350,19 +405,27 @@ def find_box(full, text):
 
 
 def find(text, show=False):
-    jev_start()
     screen_w, _ = pyautogui.size()
-    full = pyautogui.screenshot()
-    k = full.width / screen_w  # native pixels per screen point (2 on Retina)
-    (l, t, r, b), a = find_box(full, text)
+    hit = recall(text)
+    if hit:  # found this in the last few seconds and its window looks the same: no Jev
+        (l, t, r, b), a, k = hit["box"], hit["answer"], hit["k"]
+        full = pyautogui.screenshot() if show else None
+    else:
+        jev_start()
+        full = pyautogui.screenshot()
+        k = full.width / screen_w  # native pixels per screen point (2 on Retina)
+        (l, t, r, b), a = find_box(full, text)
     if show:
         highlight(full, (l, t, r, b), f"{text} · {a['confidence']:.2f}")
     x, y = (l + r) / 2 / k, (t + b) / 2 / k  # screen points
+    if not hit and a["visible"] >= 0.5 and a["confidence"] >= MIN_CONFIDENCE:  # an unsure find is asked again
+        remember(text, [x, y], [l, t, r, b], a, k, full)
     scale = screen_w / WIDTH
     SCALE.write_text(json.dumps(scale))  # so `click X Y` with the printed pixels lands here too
     FOUND.write_text(json.dumps([round(x), round(y)]))
     (RUNTIME / "desk-found-conf.json").write_text(json.dumps(a["confidence"]))
-    print(f"found at {round(x / scale)} {round(y / scale)} (screenshot px) · confidence {a['confidence']:.2f} · visible {a['visible']:.2f}")
+    print(f"found at {round(x / scale)} {round(y / scale)} (screenshot px) · confidence {a['confidence']:.2f} · visible {a['visible']:.2f}"
+          + (" · remembered" if hit else ""))
     if a["visible"] < 0.5:
         return f"Jev doesn't think {text!r} is on screen (visible {a['visible']:.2f}); the box is a guess"
     if a["confidence"] < MIN_CONFIDENCE:
@@ -452,6 +515,8 @@ def until(args):
 
 
 def do(command, args):
+    if command not in LOOKS:  # anything that acts (click, type, key, scroll, open...) can change the screen
+        forget()
     match command:
         case "ui":
             ui(args)

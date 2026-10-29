@@ -167,3 +167,41 @@ class Do(unittest.TestCase):
             self.assertIsNone(desk_do.direct("click the Save button"))
         typed.assert_called_once_with("hi there")
         do.assert_called_once_with("key", ["return"])
+
+
+class Memory(unittest.TestCase):
+    def test_a_find_is_reused_only_while_its_window_looks_the_same(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from PIL import Image, ImageDraw
+
+        from screen_intelligence import desk
+
+        screen = Image.new("RGB", (640, 400))
+        window = {"X": 100, "Y": 50, "Width": 300, "Height": 300, "id": 7}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(desk, "MEMORY", Path(tmp) / "m.json"), \
+                patch.object(desk, "pyautogui") as gui, patch.object(desk, "window_at", return_value=window), \
+                patch.object(desk, "front_pid", return_value=42) as pid:
+            gui.size.return_value = (640, 400)
+            gui.screenshot.return_value = screen
+            desk.remember("Save", [200, 100], [1, 2, 3, 4], {"confidence": .9, "visible": .9}, 1.0, screen)
+            self.assertEqual(desk.recall("Save")["box"], [1, 2, 3, 4])
+            self.assertIsNone(desk.recall("Send"))  # a different target is never a hit
+            pid.return_value = 43  # another app came to the front
+            self.assertIsNone(desk.recall("Save"))
+            pid.return_value = 42
+            scrolled = screen.copy()
+            ImageDraw.Draw(scrolled).rectangle((150, 100, 300, 200), fill="white")  # inside the window
+            gui.screenshot.return_value = scrolled
+            self.assertIsNone(desk.recall("Save"))
+            gui.screenshot.return_value = screen
+            with patch.object(desk.time, "time", return_value=desk.time.time() + desk.MEMORY_TTL):
+                self.assertIsNone(desk.recall("Save"))  # too old
+            self.assertFalse(desk.MEMORY.exists())  # and cleared, not kept
+            desk.remember("Save", [200, 100], [1, 2, 3, 4], {"confidence": .9, "visible": .9}, 1.0, screen)
+            desk.do("wait", ["0"])  # a look keeps it
+            self.assertIsNotNone(desk.recall("Save"))
+            desk.do("key", ["tab"])  # any act forgets it
+            self.assertFalse(desk.MEMORY.exists())
