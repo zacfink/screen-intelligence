@@ -306,7 +306,7 @@ def _run(args):
     history, moves, left_at = [], 0, None
     steps = plan(task)
     for s_i, step in enumerate(steps, 1):
-        tries = []
+        tries, dead_clicks = [], 0
         t0 = time.time()
         if desk.stop_requested():
             return f"Stopped before step {s_i} ({step}): you chose Stop in the menu bar"
@@ -382,6 +382,9 @@ def _run(args):
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s" + (f"  [{move}]" if "--why" in args else ""))
             if clicked and (clicked.lower() in step.lower() or (changed and step.lower().startswith("click"))):
                 break  # a "click X" step whose click hit X by name or visibly did something: done (asking again clicked twice)
+            dead_clicks += move.startswith("click") and not changed
+            if dead_clicks >= 2:  # one dead click gets a fresh look and a second try; two means it isn't landing
+                return f"Stopped at step {s_i} ({step}): two clicks changed nothing on screen ({did}), so it isn't landing"
             if len(tries) >= 3 and len(set(tries[-3:])) == 1:
                 return f"Stopped: step {s_i} did the same thing three times ({did}), so it isn't working"
             left_at = tuple(pyautogui.position())
