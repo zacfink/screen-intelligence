@@ -11,6 +11,7 @@ paying (those go back to Claude/Zac), when it repeats itself, or after --steps.
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -44,6 +45,17 @@ def element_at(x, y):
 
 def flags(args, name):
     return [args[i + 1] for i, a in enumerate(args[:-1]) if a == name]
+
+
+VALUE_FLAGS = ("--app", "--type", "--steps", "--title", "--only-url")  # flags that take a value
+
+
+def task_of(args):
+    """The plan: the first argument that is neither a flag nor a flag's value, wherever the flags are placed."""
+    for i, a in enumerate(args):
+        if not a.startswith("--") and (i == 0 or args[i - 1] not in VALUE_FLAGS):
+            return a
+    sys.exit('Usage: desk do "Click X, then type "hi"" [--app Safari] [--type TEXT] [--steps N] [--allow-risky]')
 
 
 def step_spec(step, task, history, title, elements, texts):
@@ -104,8 +116,6 @@ def attach(path):
     """Attach a file: open the page's file picker if it isn't up (Jev finds the Choose File/Browse button), then
     Go to Folder with the full path. Safari only opens a picker after a real click on the page, so the first try
     can fail; it says so and Zac clicks once."""
-    from pathlib import Path
-
     if not Path(path).expanduser().exists():
         return None, f"no such file: {path}"
     if not picker_open():
@@ -162,7 +172,7 @@ def direct(step, allow_risky=True):
     m = re.fullmatch(r'type\s+(?:"([^"]*)"|“([^”]*)”)', step.strip(), re.I)
     if m:
         desk.natural_type(m.group(1) if m.group(1) is not None else m.group(2))
-        return f"typed {m.group(1) or m.group(2)!r}"
+        return f"typed {(m.group(1) if m.group(1) is not None else m.group(2))!r}"
     m = re.fullmatch(r"(?:press|hit)\s+(?:the\s+)?([\w+]+)(?:\s+key)?", step.strip(), re.I)
     if m:
         key = desk.KEYS.get(m.group(1).lower(), m.group(1).lower())
@@ -260,6 +270,8 @@ def recipe(args):
             print(f"{f.stem:16} {next((l[2:] for l in f.read_text().splitlines() if l.startswith('# vars:')), '')}")
         return None
     if args[0] == "show":
+        if len(args) < 2 or not (RECIPES / f"{args[1]}.txt").exists():
+            return "usage: desk recipe show NAME (`desk recipe list` has the names)"
         print((RECIPES / f"{args[1]}.txt").read_text())
         return None
     path = RECIPES / f"{args[0]}.txt"
@@ -279,7 +291,7 @@ def recipe(args):
 
 def run(args):
     """Run the plan, then always print what's on screen, so the caller's next move needs no screenshot."""
-    task = next((a for a in args if not a.startswith("--")), "")
+    task = task_of(args)
     title = (flags(args, "--title") or [task[:60] + ("…" if len(task) > 60 else "")])[0]
     desk.stop_requested()  # an old Stop click doesn't count for this run
     desk.status("running", title, "Starting", 0, len(plan(task)))
@@ -292,7 +304,7 @@ def run(args):
 
 
 def _run(args):
-    task = next(a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or not args[i - 1].startswith("--")))
+    task = task_of(args)
     app_name = (flags(args, "--app") or ["Safari"])[0]
     texts = flags(args, "--type")
     budget = int((flags(args, "--steps") or [15])[0])

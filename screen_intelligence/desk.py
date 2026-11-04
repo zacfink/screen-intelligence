@@ -374,6 +374,8 @@ _jev_worker = None
 def jev_start():
     """Start the worker if it isn't running. find/see call this before the screenshot so the two overlap."""
     global _jev_worker
+    if not JEV_PYTHON.exists():
+        sys.exit(f"Jev needs the TypeSafe SDK in its own venv at {JEV_PYTHON} (see README, Setup).")
     if _jev_worker is None or _jev_worker.poll() is not None:
         _jev_worker = subprocess.Popen([str(JEV_PYTHON), "-I", str(JEV_LOOK), "serve"], stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -489,6 +491,8 @@ def see(text):
 def ui(args):
     from . import ax
 
+    if args and args[-1] == "--find":
+        sys.exit("desk ui --find needs the text to look for.")
     find = args[args.index("--find") + 1].lower() if "--find" in args else None
     show_all = "--all" in args
     if "--full" in args:  # untruncated labels, for reading paragraphs rather than finding buttons
@@ -532,6 +536,8 @@ def until(args):
     gone = "--gone" in args
     timeout = float(args[args.index("--timeout") + 1]) if "--timeout" in args else 300
     words = [a for i, a in enumerate(args) if a not in ("--gone", "--timeout") and (i == 0 or args[i - 1] != "--timeout")]
+    if not words:
+        sys.exit("Usage: desk until|expect TEXT[|TEXT2] [App] [--gone] [--timeout S]")
     texts, app_name = words[0].lower().split("|"), " ".join(words[1:]) or None  # "log out|logout": any of them
     deadline = time.time() + timeout
     while time.time() < deadline:

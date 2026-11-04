@@ -247,3 +247,13 @@ class Memory(unittest.TestCase):
             self.assertIsNotNone(desk.recall("Save"))
             desk.do("key", ["tab"])  # any act forgets it
             self.assertFalse(desk.MEMORY.exists())
+
+
+class TaskOf(unittest.TestCase):
+    def test_flags_before_the_plan_are_not_the_plan(self):
+        from screen_intelligence.desk_do import task_of
+
+        self.assertEqual(task_of(["--app", "Safari", "--allow-risky", "Click Save"]), "Click Save")
+        self.assertEqual(task_of(["Click Save", "--steps", "5"]), "Click Save")
+        with self.assertRaises(SystemExit):
+            task_of(["--app", "Safari"])
