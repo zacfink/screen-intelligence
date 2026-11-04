@@ -26,7 +26,8 @@ def api_key():
     """Claude's tool shells don't read ~/.zshrc, where the key lives, so fall back to its export line."""
     if os.environ.get("TYPESAFE_API_KEY"):
         return os.environ["TYPESAFE_API_KEY"]
-    m = re.search(r"^export TYPESAFE_API_KEY=['\"]?([^'\"\s]+)", (Path.home() / ".zshrc").read_text(), re.M)
+    zshrc = Path.home() / ".zshrc"
+    m = re.search(r"^export TYPESAFE_API_KEY=['\"]?([^'\"\s]+)", zshrc.read_text() if zshrc.exists() else "", re.M)
     if not m:
         sys.exit("TYPESAFE_API_KEY isn't set (or in ~/.zshrc)")
     return m.group(1)

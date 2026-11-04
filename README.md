@@ -88,11 +88,12 @@ macOS only. It's set up for my machine, so expect to adjust paths:
 - Python 3.10 with `requirements.txt`.
 - Jev runs in its own Python 3.12 venv at `~/.venvs/typesafe` with `typesafe-sdk` 0.7.5+, and needs
   `TYPESAFE_API_KEY`. Images and Box are TypeSafe beta features, so desk asks for `jev-1.14.0` by name.
-- The `desk` launcher (in `~/.local/bin`) shows a notification and waits 3 seconds before taking the mouse after
-  5 idle minutes.
+- `bin/desk` runs it from anywhere: `ln -s "$PWD/bin/desk" ~/.local/bin/desk`, and set `DESK_PYTHON` to the Python
+  that has `requirements.txt` installed. (My own launcher also shows a notification and waits 3 seconds before
+  taking the mouse after 5 idle minutes; that part isn't in the repo.)
 - Grant Screen Recording and Accessibility to whatever runs it (for Claude Code: `ClaudeCode.app`).
 
-Tests (nothing touches the real mouse or the network; CI runs them on macOS):
+Tests (nothing touches the real mouse or the network; CI runs them on macOS; run from the repo root):
 
 ```bash
 python -m unittest

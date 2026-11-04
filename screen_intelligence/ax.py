@@ -64,7 +64,10 @@ def elements(app_name=None):
     window = attr(root, "AXFocusedWindow") or attr(root, "AXMainWindow")
     if window is None:
         raise SystemExit(f"{app.localizedName()} has no window to read.")
-    wx, wy, ww, wh = frame(window)
+    bounds = frame(window)
+    if bounds is None:
+        raise SystemExit(f"{app.localizedName()}'s window doesn't report a size, so it can't be read.")
+    wx, wy, ww, wh = bounds
 
     found, stack, seen = [], [window], 0
     while stack and seen < MAX_NODES:
