@@ -1,0 +1,22 @@
+#!/bin/bash
+# Unfollow Instagram accounts through Safari's page code (desk js). Only run with names Zac gave.
+#   scripts/ig-unfollow user1 user2 ...
+# Paced (~20s apart) so Instagram doesn't rate-limit the account. Done ones go to runtime/ig-unfollowed.txt.
+# FAST=1: no confirm step, ~2s apart (Zac's call, 2026-11-07; higher rate-limit risk).
+for u in "$@"; do
+  osascript -e "tell application \"Safari\" to set URL of current tab of front window to \"https://www.instagram.com/$u/\""
+  for i in $(seq 1 40); do sleep 0.3; [ "$(desk js eval "location.pathname + document.readyState")" = "/$u/complete" ] && break; done
+  sleep 2
+  n=$(desk js read | awk "/button 'Following'\$/{print \$1; exit}")
+  if [ -z "$n" ]; then echo "✗ $u: no Following button (already unfollowed, private, or renamed)"; continue; fi
+  desk js click "$n" >/dev/null; sleep 1.2
+  m=$(desk js read | awk "/'Unfollow'\$/{print \$1; exit}")
+  if [ -z "$m" ]; then echo "✗ $u: Unfollow option didn't appear"; continue; fi
+  desk js click "$m" >/dev/null
+  if [ -n "$FAST" ]; then echo "→ $u"; echo "$(date '+%F %T') $u" >> runtime/ig-unfollowed.txt; sleep 2; continue; fi
+  sleep 1.5
+  if desk js read | grep -q -E "button 'Follow( Back)?'\$"; then
+    echo "✓ $u"; echo "$(date '+%F %T') $u" >> runtime/ig-unfollowed.txt
+  else echo "? $u: clicked Unfollow but couldn't confirm"; fi
+  [ "$u" = "${@: -1}" ] || sleep 20
+done

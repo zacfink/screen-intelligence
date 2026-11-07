@@ -1,8 +1,9 @@
 """desk demo: a test page of buttons (big, medium, tiny) in random spots; desk finds and clicks each one and the page
 says whether it was hit. Scores accuracy and speed, so changes to desk can be measured instead of guessed.
 
-  desk demo [jev|ui] [N]    jev (default): find each button from pixels with Jev, then click @
+  desk demo [jev|ui|js] [N] jev (default): find each button from pixels with Jev, then click @
                             ui: find it by label in the accessibility tree instead, for comparison
+                            js: read the page's DOM and click by element (desk js)
 """
 import json
 import random
@@ -86,7 +87,7 @@ def open_page(seed=None):
 def run(args):
     from . import desk
 
-    mode = args[0] if args and args[0] in ("jev", "ui") else "jev"
+    mode = args[0] if args and args[0] in ("jev", "ui", "js") else "jev"
     n = int(next((a for a in args if a.isdigit()), len(TARGETS)))
     seed = random.randrange(1000)
     targets = random.Random(seed).sample(TARGETS, n)
@@ -95,7 +96,7 @@ def run(args):
     subprocess.run(["open", "-a", "Safari", f"file://{PAGE}?{seed}"])
     desk.until([f"seed {seed}", "Safari", "--timeout", "10"])  # this run's page, not an older demo tab
     time.sleep(0.8)  # let the page paint before the first look
-    rows, last = [], ""
+    rows, last = [], title()  # the starting title, so the first click has to change it
     for i, text, desc, _ in targets:
         t0 = time.time()
         if mode == "jev":
@@ -103,6 +104,14 @@ def run(args):
             conf = json.loads((RUNTIME / "desk-found-conf.json").read_text())
             located = time.time()
             desk.click(*desk.point(["@"])[0], "left")
+        elif mode == "js":
+            from . import desk_js
+
+            dom = json.loads(desk_js.js(desk_js.READ))
+            n_el = next((k for k, e in enumerate(dom["elements"], 1) if e["role"] == "button" and e["text"] == text), None)
+            located, problem, conf = time.time(), None if n_el else "not in the DOM read", None
+            if n_el:
+                problem = desk_js.click(n_el, risky=True)  # a test page: its Send/Delete do nothing
         else:
             from . import ax
 

@@ -257,3 +257,36 @@ class TaskOf(unittest.TestCase):
         self.assertEqual(task_of(["Click Save", "--steps", "5"]), "Click Save")
         with self.assertRaises(SystemExit):
             task_of(["--app", "Safari"])
+
+
+class Js(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+
+        from screen_intelligence import desk_js
+
+        self.m = desk_js
+        for target in (patch.object(desk_js, "js"), patch.object(desk_js, "real_click"), patch.object(desk_js.time, "sleep"),
+                       patch.object(desk_js, "note")):
+            self.addCleanup(target.stop)
+            setattr(self, target.attribute, target.start())
+
+    def test_click_that_changes_the_page_at_once_skips_the_wait(self):
+        self.js.side_effect = ["reacted"]
+        self.m.click(3)
+        self.sleep.assert_not_called()
+        self.real_click.assert_not_called()
+
+    def test_click_the_page_reacts_to_later_is_not_repeated(self):
+        self.js.side_effect = ["ok", "yes"]
+        self.m.click(3)
+        self.real_click.assert_not_called()  # a second, real click would press it twice
+
+    def test_click_the_page_ignores_falls_back_to_a_real_click(self):
+        self.js.side_effect = ["ok", "no"]
+        self.m.click(3)
+        self.real_click.assert_called_once_with(3)
+
+    def test_gone_element_asks_for_a_fresh_read(self):
+        self.js.side_effect = ["gone"]
+        self.assertIn("desk js read", self.m.click(3))

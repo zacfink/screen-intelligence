@@ -32,6 +32,8 @@
   Jev drives:
     desk do "goal" [--app Safari] [--type "text"]... [--steps 15]   Jev picks each move from the screen, the goal and
                               what's been done; stops when done, stuck, repeating, or before anything risky
+  Page code (Safari, ~0.1s a step):
+    desk js read [--find TEXT] | js click N [--real] | js type N "text" | js eval "code"   see desk_js.py
   Jev writes:
     desk jevtype "question" [--max 80] [--dry]   Jev picks every character of an answer and it's typed as it goes
     desk recipe list | show NAME | NAME key=value...   run a saved plan from recipes/ with its blanks filled in
@@ -57,9 +59,24 @@ import subprocess
 import sys
 import time
 
-import pyautogui
-
 from . import RUNTIME
+
+
+class _Lazy:
+    """pyautogui takes ~0.36s to import (it pulls in OpenCV); `desk js` never needs it, so load it on first use."""
+
+    def __getattr__(self, name):
+        import pyautogui
+
+        return getattr(pyautogui, name)
+
+    def __setattr__(self, name, value):
+        import pyautogui
+
+        setattr(pyautogui, name, value)
+
+
+pyautogui = _Lazy()
 
 WIDTH = 1280  # small enough that the image reaches Claude unshrunk, so its coordinates are exact
 GRID = 100
@@ -578,6 +595,10 @@ def do(command, args):
             from . import desk_do
 
             return desk_do.run(args)
+        case "js":
+            from . import desk_js
+
+            return desk_js.run(args)
         case "jevtype":
             from . import jev_type
 
@@ -650,7 +671,8 @@ def do(command, args):
 def main(argv):
     if not argv:
         sys.exit(__doc__)
-    pyautogui.PAUSE = 0.05  # slam the mouse into a corner to abort (pyautogui's fail-safe)
+    if argv[0] != "js":  # page-code commands skip the import; a js fallback click sets it in desk_js
+        pyautogui.PAUSE = 0.05  # slam the mouse into a corner to abort (pyautogui's fail-safe)
     problem = do(argv[0], argv[1:])
     if problem:
         print(problem)
