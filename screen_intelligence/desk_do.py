@@ -4,6 +4,7 @@ or stop. Jev chooses and points; it doesn't write, so text to type goes in the s
 (then type "hello") or with --type.
 
   desk do "Click Save, then Share" [--app Safari] [--type "text"]... [--steps 15] [--allow-risky]
+  desk do --roam [--steps 8]   no goal: Jev explores by itself with all its senses (desk_senses.py)
 
 It stops by itself when Jev judges the goal done, when the next move looks like sending, submitting, deleting or
 paying (those go back to Claude/Zac), when it repeats itself, or after --steps.
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import pyautogui
 
-from . import RUNTIME, ax, desk
+from . import RUNTIME, ax, desk, desk_senses
 
 DONE_AT = 0.6  # Noul "has this step been done?" above this moves on to the next step
 RISKY_AT = 0.5  # Noul "would the next move send/submit/delete/pay?" above this hands back
@@ -58,7 +59,7 @@ def task_of(args):
     sys.exit('Usage: desk do "Click X, then type "hi"" [--app Safari] [--type TEXT] [--steps N] [--allow-risky]')
 
 
-def step_spec(step, task, history, title, elements, texts):
+def step_spec(step, task, history, title, elements, texts, senses=None):
     actions = {"click_labelled": "Click one of the elements listed in `elements`.",
                "click_point": "Click something visible on `screen` that is not listed in `elements`.",
                "stuck": "Nothing available does `step`, or it needs a person (login, password, a choice only they can make)."}
@@ -74,6 +75,8 @@ def step_spec(step, task, history, title, elements, texts):
         questions["element"] = {"type": "choice", "criteria": elements,
                                 "instructions": "Which element in `elements` should be clicked to do `step`?"}
     state = {"step": step, "whole_task": task, "done_so_far": history or ["nothing yet"], "window": title, "elements": elements}
+    if senses:  # the rest of the Mac (hearing, body) and memory of earlier runs, from desk_senses
+        state.update(senses)
     return {"state": state, "questions": questions}
 
 
@@ -291,6 +294,8 @@ def recipe(args):
 
 def run(args):
     """Run the plan, then always print what's on screen, so the caller's next move needs no screenshot."""
+    if "--roam" in args:  # no goal: Jev looks around by itself (desk_senses)
+        return desk_senses.roam(args)
     task = task_of(args)
     title = (flags(args, "--title") or [task[:60] + ("…" if len(task) > 60 else "")])[0]
     desk.stop_requested()  # an old Stop click doesn't count for this run
@@ -351,7 +356,8 @@ def _run(args):
                          and 0 <= e["x"] < screen_w and 0 <= e["y"] < screen_h][:MAX_ELEMENTS]
             elements = {f"#{i + 1}": f"{e['role']} {e['text']} ({where(e['x'], e['y'], screen_w, screen_h)})" for i, e in on_screen}
             typeable = texts + quoted(step)
-            a = desk.jev("raw", json.dumps(step_spec(step, task, history, title, elements, typeable)), RUNTIME / "do.png")
+            senses = {"senses": desk_senses.sense(title), "memory": desk_senses.recall(6)}
+            a = desk.jev("raw", json.dumps(step_spec(step, task, history, title, elements, typeable, senses)), RUNTIME / "do.png")
             if tries and a["done"] >= DONE_AT:  # a step counts as done only after a move made for it
                 break
             move = pick(a["action"])
@@ -391,6 +397,7 @@ def _run(args):
             history.append(f"step {s_i} ({step}): {did}")
             tries.append(did)
             log_step(step, move, did, elements, title, a)
+            desk_senses.remember("goal", title, did)
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s" + (f"  [{move}]" if "--why" in args else ""))
             if clicked and (clicked.lower() in step.lower() or (changed and step.lower().startswith("click"))):
                 break  # a "click X" step whose click hit X by name or visibly did something: done (asking again clicked twice)
