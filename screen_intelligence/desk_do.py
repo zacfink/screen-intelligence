@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pyautogui
 
-from . import RUNTIME, ax, desk, desk_senses
+from . import RUNTIME, ax, desk, desk_moves, desk_senses
 
 DONE_AT = 0.6  # Noul "has this step been done?" above this moves on to the next step
 RISKY_AT = 0.5  # Noul "would the next move send/submit/delete/pay?" above this hands back
@@ -339,6 +339,7 @@ def _run(args):
             history.append(f"step {s_i} ({step}): {did}")
             print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s (no look needed)")
             continue
+        mk, learned = desk_moves.key(app_name, step), None  # move brain: replay a known move, learn a new one
         while True:
             if moves >= budget:
                 return f"Ran out of moves ({budget}) on step {s_i}: {step}"
@@ -352,6 +353,13 @@ def _run(args):
             t0, clicked, changed = time.time(), "", False
             full, (_, title, found) = look(app_name, screen_w)
             k = full.width / screen_w
+            did = None if tries else desk_moves.replay(mk, title, found, screen_w, screen_h, allow_risky)
+            if did:  # no Jev call: this step worked before, in this run or an earlier one
+                moves += 1
+                history.append(f"step {s_i} ({step}): {did}")
+                desk_senses.remember("goal", title, did)
+                print(f"{s_i}. {step} → {did} · {time.time() - t0:.2f}s")
+                break
             on_screen = [(i, e) for i, e in enumerate(found) if e["role"] in desk.CLICKABLE and e["text"]
                          and 0 <= e["x"] < screen_w and 0 <= e["y"] < screen_h][:MAX_ELEMENTS]
             elements = {f"#{i + 1}": f"{e['role']} {e['text']} ({where(e['x'], e['y'], screen_w, screen_h)})" for i, e in on_screen}
@@ -378,6 +386,7 @@ def _run(args):
             if move == "click_labelled" and e:
                 changed = desk.click(e["x"], e["y"], "left")
                 did, clicked = f"clicked the {e['role']} '{e['text']}'", e["text"]
+                learned = ("click", e["role"], e["text"])
             elif move.startswith("click"):  # a spot Jev points at, sharpened on a close-up like desk find
                 box = (b["left"] * full.width, b["top"] * full.height, b["right"] * full.width, b["bottom"] * full.height)
                 better = desk.zoom(full, box, desk.CLOSE_UP, "what to click to " + step, 2)
@@ -387,11 +396,14 @@ def _run(args):
                 name = element_at(x, y)
                 clicked = name.split("'")[1] if "'" in name else ""
                 did = f"clicked the {name}" if name else f"clicked the spot at ({round(x)}, {round(y)}) ({where(x, y, screen_w, screen_h)})"
+                learned = ("point", x / screen_w, y / screen_h, title)
             elif move.startswith("key "):
                 desk.do("key", [desk.KEYS[move[4:]]])
                 did = f"pressed {desk.KEYS[move[4:]]} ({move[4:]})"
+                learned = ("key", desk.KEYS[move[4:]])
             else:  # type N
                 desk.natural_type(typeable[int(move[5:])])
+                learned = None  # the words change between tasks; typing steps run without Jev anyway
                 did = f"typed {typeable[int(move[5:])]!r}"
             moves += 1
             history.append(f"step {s_i} ({step}): {did}")
@@ -409,4 +421,6 @@ def _run(args):
             left_at = tuple(pyautogui.position())
             if not changed:
                 time.sleep(0.15)  # a click already waited for the screen to change; keys and typing get a moment
+        if len(tries) == 1 and learned:  # one move did the whole step: worth doing again from memory
+            desk_moves.learn(mk, learned)
     print(f"done: {len(plan(task))} steps in {moves} moves")
