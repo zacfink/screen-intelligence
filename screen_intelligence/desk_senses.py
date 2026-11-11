@@ -7,6 +7,9 @@ around by itself.
   body     battery, how long since Zac last touched the keyboard/mouse, clipboard changed (never its contents)
   memory   runtime/senses-memory.jsonl: the last moves and windows, kept between runs
 
+  desk do --roam --to "Apple Inc." [--steps 20]   a Wikipedia race from the page in Safari's front tab: each move
+                               Jev picks, from the article's own links (read from the page, not the screen), the one
+                               closest to the target, and Safari follows it. Stops on the target page.
   desk do --roam [--steps 8]   Jev explores for a few moves: clicks buttons/links/tabs, scrolls, goes back, switches
                                between a few safe apps. It never types, skips risky labels, and stops if you move
                                the mouse. Only runs when started; there is no background mode.
@@ -124,7 +127,10 @@ def roam(args):
     likely to show it something it hasn't seen. A second Jev check vets any click before it happens."""
     from .desk_do import flags, look, report
 
-    budget = min(int((flags(args, "--steps") or [8])[0]), ROAM_MAX)
+    target = (flags(args, "--to") or [None])[0]
+    budget = min(int((flags(args, "--steps") or [20 if target else 8])[0]), ROAM_MAX)
+    if target:
+        return race(target, budget)
     w, h = pyautogui.size()
     desk.stop_requested()
     desk.jev_start()
@@ -159,7 +165,9 @@ def roam(args):
             break
         if move == "click":
             e = on_screen[int(a["element"]["choice"][1:]) - 1]
-            vet = desk.jev("raw", json.dumps({"state": {"senses": state["senses"], "element": f"{e['role']} {e['text']}"},
+            # links only navigate (risky words never reach the menu); buttons get the extra check. A plain
+            # "Toggle Risks subsection" button scored 0.86 on its word alone (2026-11-10)
+            vet = {"risky": 0} if e["role"] == "link" else desk.jev("raw", json.dumps({"state": {"senses": state["senses"], "element": f"{e['role']} {e['text']}"},
                                               "questions": {"risky": {"type": "noul", "instructions":
                                                   "Would clicking `element` send, post, delete, buy, pay for, or change "
                                                   "something, rather than just show something?"}}}), RUNTIME / "do.png")
@@ -187,4 +195,85 @@ def roam(args):
     desk.status("stopped" if problem else "done", "Roaming", problem or f"Roamed {budget} moves")
     print(problem or f"done: roamed {budget} moves")
     report(ax.front_app().localizedName(), h)
+    return "stopped" if problem else None
+
+
+# Wikipedia race. The screen only shows ~40 elements and they're mostly Wikipedia's own menus (the first try picked
+# the Search button 7 times in 20 moves and never clicked a link), so the race reads the article's links from the page.
+LINKS_JS = ("JSON.stringify([...document.querySelectorAll('#mw-content-text a')]"  # hrefs can be /wiki/X or full URLs
+            ".filter(a => a.host.endsWith('wikipedia.org') && a.pathname.startsWith('/wiki/'))"
+            ".map(a => a.getAttribute('title')).filter(t => t && !t.includes(':')))")
+CHUNK = 60  # links per Jev choice; more crowds it
+MAX_LINKS = 240  # big articles have 1000+ links; the first few hundred hold the ones that matter
+
+
+def reached(title, target):
+    """Safari's title is 'Apple Inc. - Wikipedia'; the race is won when the page part is the target."""
+    return title.lower().split(" - wikipedia")[0].strip() == target.lower().strip()
+
+
+def next_links(titles, visited):
+    """The article's links in page order, once each, minus pages already seen (no going in circles)."""
+    seen, out = set(visited), []
+    for t in titles:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out[:MAX_LINKS]
+
+
+def pick_link(links, page, target, path):
+    """Jev's best next step among up to CHUNK titles (text only, no screenshot)."""
+    criteria = {f"#{i + 1}": t for i, t in enumerate(links)}
+    spec = {"state": {"target": target, "page": page, "path_so_far": path, "links": criteria},
+            "questions": {"next": {"type": "choice", "criteria": criteria, "instructions":
+                                   "Wikipedia race: which link in `links` is the best next page on the way from `page` "
+                                   "to `target`? The target itself if it's there; else the page most likely to link "
+                                   "to it (its founder, its field, its country, its industry, a famous product)."}}}
+    return links[int(desk.jev("raw", json.dumps(spec), "")["next"]["choice"][1:]) - 1]
+
+
+def race(target, budget):
+    from .desk_do import report
+    from .desk_js import js
+
+    desk.stop_requested()
+    desk.jev_start()
+    desk.status("running", f"Race to {target}", "Reading the page", 0, budget)
+    page = (js("document.title") or "").split(" - Wikipedia")[0]
+    path, problem, t0 = [page], None, time.time()
+    for n in range(1, budget + 1):
+        if reached(page, target):
+            break
+        if desk.stop_requested():
+            problem = "Stopped: you chose Stop in the menu bar"
+            break
+        if "wikipedia.org" not in (js("location.host") or ""):
+            problem = "Stopped: the front tab isn't Wikipedia any more"
+            break
+        links = next_links(json.loads(js(LINKS_JS) or "[]"), path)
+        if not links:
+            problem = f"Dead end at {page}: no new links"
+            break
+        hit = next((l for l in links if l.lower() == target.lower()), None)
+        if hit:
+            pick = hit
+        else:  # best of each chunk, then the best of the winners
+            winners = [pick_link(links[i:i + CHUNK], page, target, path) for i in range(0, len(links), CHUNK)]
+            pick = winners[0] if len(winners) == 1 else pick_link(winners, page, target, path)
+        js("location.href = '/wiki/' + encodeURIComponent(" + json.dumps(pick.replace(" ", "_")) + ")")
+        for _ in range(40):  # wait for the new page
+            time.sleep(0.15)
+            if js("document.readyState") == "complete" and not (js("document.title") or "").startswith(page + " - "):
+                break
+        page = (js("document.title") or pick).split(" - Wikipedia")[0]
+        path.append(page)
+        remember("race", page, f"followed '{pick}' toward {target}")
+        desk.status("running", None, page, n, budget)
+        print(f"{n}. → {page}" + ("  (saw the target linked)" if hit else ""))
+    if not problem and not reached(page, target):
+        problem = f"Didn't reach {target} in {budget} moves (ended on {page})"
+    took = time.time() - t0
+    print(problem or f"reached {target} in {len(path) - 1} clicks, {took:.0f}s: " + " → ".join(path))
+    desk.status("stopped" if problem else "done", f"Race to {target}", problem or f"Reached in {len(path) - 1} clicks")
     return "stopped" if problem else None
