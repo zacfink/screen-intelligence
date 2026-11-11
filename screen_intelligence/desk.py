@@ -32,6 +32,11 @@
   Jev drives:
     desk do "goal" [--app Safari] [--type "text"]... [--steps 15]   Jev picks each move from the screen, the goal and
                               what's been done; stops when done, stuck, repeating, or before anything risky
+                              Each step also gets senses (sound, battery, idle, clipboard changed) and memory of past runs.
+                              Move brain: a step that worked in one move is replayed with no Jev call, within the run
+                              (short-term) and in later tasks on the same site/app (long-term, runtime/move-brain.json).
+    desk do --roam [--steps 8]   no goal: Jev explores by itself (clicks safe links/buttons, scrolls, switches apps),
+                              never types, stops if you move the mouse
   Page code (Safari, ~0.1s a step):
     desk js read [--find TEXT] | js click N [--real] | js type N "text" | js eval "code"   see desk_js.py
   Jev writes:
