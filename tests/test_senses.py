@@ -21,6 +21,11 @@ class Roam(unittest.TestCase):
         self.assertNotIn("switch Safari", moves)
         self.assertIn("switch Finder", moves)
 
+    def test_race_wins_on_the_target_title_and_never_revisits(self):
+        self.assertTrue(desk_senses.reached("Apple Inc. - Wikipedia", "apple inc."))
+        self.assertFalse(desk_senses.reached("Apple - Wikipedia", "Apple Inc."))
+        self.assertEqual(desk_senses.next_links(["A", "B", "A", "Start", "C"], ["Start"]), ["A", "B", "C"])
+
     def test_memory_round_trips_and_keeps_only_the_last_lines(self):
         with tempfile.TemporaryDirectory() as d, patch.object(desk_senses, "MEMORY", Path(d) / "m.jsonl"):
             self.assertEqual(desk_senses.recall(), ["nothing yet"])
