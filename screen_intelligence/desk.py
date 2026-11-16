@@ -46,7 +46,7 @@
     desk status running|done|stopped|idle "task" ["step" [n of]]   show progress in the Claude Status menu bar app
   Demo:
     desk train [N]            N practice rounds of random tasks on the demo page, every move scored (labelled data)
-    desk demo [jev|ui] [N]    a test page of buttons in random spots; find + click each, the page scores hits and times
+    desk demo [jev|ui|local] [N]a test page of buttons in random spots; find + click each, the page scores hits and times
   Check:
     desk expect TEXT[|TEXT2] [App] [--timeout S]   stop unless a label containing TEXT shows up within S (3)
   Batch:

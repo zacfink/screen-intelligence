@@ -31,6 +31,7 @@ Measured with `desk demo` and `desk train` (a test page of 12 buttons, big to ti
 | One step of an agent run (`desk do`) | ~1.2 s per click, typing ~100 wpm |
 | Yes/no question about the screen (`desk see`) | ~1 s, ~10 tokens instead of a ~1,200-token screenshot |
 | The same `desk find` again within 20 s, screen unchanged | ~0.6 s instead of ~1.25 s (remembered, no Jev) |
+| Find a button with a local model, no cloud (`desk demo local`, qwen3.5:4b via Ollama, M3 Pro) | 12 of 12 hit, ~3.5 s each |
 
 Misses come with low confidence (~0.1 vs ~0.8 for hits), so `find` refuses to click under 0.6.
 
@@ -75,7 +76,7 @@ desk type [--natural] "text"         # paste, or type key by key like a person
 desk run "click #4; type hi; key return"   # several steps, stops on the first that doesn't take
 desk do "Click X, then type "hi", then press return"   # Jev drives a written plan, step by step
 desk recipe NAME key=value...        # a saved plan with blanks, e.g. recipes/quip-apply.txt
-desk demo [jev|ui]                   # scored test page of random buttons
+desk demo [jev|ui|js|local]          # scored test page of random buttons (local = Ollama, no cloud)
 desk train [N]                       # N random practice tasks on the demo page, every move scored
 ```
 

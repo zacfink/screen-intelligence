@@ -4,8 +4,12 @@ says whether it was hit. Scores accuracy and speed, so changes to desk can be me
   desk demo [jev|ui|js] [N] jev (default): find each button from pixels with Jev, then click @
                             ui: find it by label in the accessibility tree instead, for comparison
                             js: read the page's DOM and click by element (desk js)
+                            local: find it from pixels with a local Ollama vision model (no cloud; DESK_LOCAL_MODEL)
 """
+import base64
+import io
 import json
+import os
 import random
 import statistics
 import subprocess
@@ -84,10 +88,47 @@ def open_page(seed=None):
     return seed
 
 
+def local_find(desc, app="Safari", width=1024):
+    """Screen point of `desc` from a local Ollama vision model, looking only at `app`'s front window. Qwen3.5 answers
+    in 0-1000 coordinates over the image. 2026-11-15: on the whole screen it went 7/12 at ~3.8s, pointing tiny icons
+    at look-alikes in other apps; cropping to the window removes those and cuts image tokens. Reading the image is most
+    of the time: 1024 wide = 843 tokens, ~3.5s, 12/12; 768 = 499 tokens, ~2s, but 9-10/12 (tiny icons mixed up);
+    512 gave four guesses."""
+    import urllib.request
+
+    import pyautogui
+    import Quartz
+
+    w, h = pyautogui.size()
+    # ponytail: the app's biggest window, since Safari also lists small untitled overlay windows on top; pick by
+    # title or focus if two big windows ever compete
+    wins = [x["kCGWindowBounds"] for x in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+            if x.get("kCGWindowLayer") == 0 and x.get("kCGWindowOwnerName") == app]
+    b = max(wins, key=lambda b: b["Width"] * b["Height"], default={"X": 0, "Y": 0, "Width": w, "Height": h})
+    box = (b["X"], b["Y"], b["X"] + b["Width"], b["Y"] + b["Height"])
+    im = pyautogui.screenshot()
+    k = im.width / w  # screenshot pixels per screen point
+    im = im.crop(tuple(round(v * k) for v in box))
+    buf = io.BytesIO()
+    im.resize((width, round(im.height * width / im.width))).save(buf, "PNG")
+    body = {"model": os.environ.get("DESK_LOCAL_MODEL", "qwen3.5:4b"), "stream": False, "think": False, "keep_alive": "10m",
+            "options": {"temperature": 0, "num_predict": 20}, "messages": [{"role": "user", "images": [base64.b64encode(buf.getvalue()).decode()],
+            "content": f'Locate {desc} in this screenshot. Reply only with JSON {{"point_2d": [x, y]}} giving its center.'}]}
+    req = urllib.request.Request("http://localhost:11434/api/chat", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    out = json.loads(urllib.request.urlopen(req, timeout=120).read())["message"]["content"]
+    import re
+
+    m = re.search(r'point_2d"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)', out)  # first point; it sometimes adds a label after
+    if not m:
+        raise ValueError(f"no point in the model's answer: {out[:80]!r}")
+    x, y = float(m[1]), float(m[2])
+    return box[0] + x / 1000 * (box[2] - box[0]), box[1] + y / 1000 * (box[3] - box[1])
+
+
 def run(args):
     from . import desk
 
-    mode = args[0] if args and args[0] in ("jev", "ui", "js") else "jev"
+    mode = args[0] if args and args[0] in ("jev", "ui", "js", "local") else "jev"
     n = int(next((a for a in args if a.isdigit()), len(TARGETS)))
     seed = random.randrange(1000)
     targets = random.Random(seed).sample(TARGETS, n)
@@ -104,6 +145,10 @@ def run(args):
             conf = json.loads((RUNTIME / "desk-found-conf.json").read_text())
             located = time.time()
             desk.click(*desk.point(["@"])[0], "left")
+        elif mode == "local":
+            x, y = local_find(desc)
+            located, problem, conf = time.time(), None, None
+            desk.click(x, y, "left")
         elif mode == "js":
             from . import desk_js
 
